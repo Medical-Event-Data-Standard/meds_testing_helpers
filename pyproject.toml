@@ -19,7 +19,7 @@ classifiers = [
 dependencies = ["annotated-types", "numpy", "hydra-core"]
 
 [project.optional-dependencies]
-dev = ["pre-commit"]
+dev = ["pre-commit<4"]
 tests = ["pytest", "pytest-cov"]
 
 [project.scripts]
