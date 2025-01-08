@@ -9,7 +9,7 @@ from .dataset_generator import (
     ProportionGenerator,
 )
 
-__package_name__ = "sample_dataset_builder"
+__package_name__ = "meds_sample_dataset_builder"
 try:
     __version__ = version(__package_name__)
 except PackageNotFoundError:  # pragma: no cover
