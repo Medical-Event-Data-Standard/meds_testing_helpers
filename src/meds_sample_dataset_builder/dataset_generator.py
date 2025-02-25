@@ -2,9 +2,10 @@ from dataclasses import dataclass
 from typing import Annotated, Any
 
 import numpy as np
+import polars as pl
 from annotated_types import Ge, Gt
 
-SAMPLE_DATASET_T = dict[str, np.ndarray | list]
+SAMPLE_DATASET_T = pl.DataFrame
 NUM = int | float
 POSITIVE_INT = Annotated[int, Ge(0)]
 NON_NEGATIVE_NUM = Annotated[NUM, Gt(-1)]
@@ -77,6 +78,32 @@ class DiscreteGenerator:
 
     def rvs(self, size: int, rng: np.random.Generator) -> np.ndarray:
         return rng.choice(self.X, size=size, p=self.p, replace=True)
+
+
+class DatetimeGenerator(DiscreteGenerator):
+    """A class to generate random datetimes.
+
+    This merely applies type-checking to the DiscreteGenerator class.
+
+    Attributes:
+        X: The list of datetimes to sample from.
+        freq: The frequency of each option. If None, all options are equally weighted.
+
+    Raises:
+        ValueError: In addition to the base class errors, if any of the options are not datetimes.
+
+    Examples:
+        >>> rng = np.random.default_rng(1)
+        >>> DatetimeGenerator([np.datetime64("2021-01-01"), np.datetime64("2022-02-02")]).rvs(10, rng)
+        array(['2022-02-02', '2022-02-02', '2021-01-01', '2022-02-02',
+               '2021-01-01', '2021-01-01', '2022-02-02', '2021-01-01',
+               '2022-02-02', '2021-01-01'], dtype='datetime64[D]')
+    """
+
+    def __post_init__(self):
+        if not all(isinstance(x, np.datetime64) for x in self.X):
+            raise ValueError("All elements should be datetimes.")
+        super().__post_init__()
 
 
 class ProportionGenerator(DiscreteGenerator):
@@ -177,7 +204,7 @@ class PositiveIntGenerator(PositiveNumGenerator):
 
 
 @dataclass
-class DatasetGenerator:
+class MEDSDataDFGenerator:
     """A class to generate whole dataset objects in the form of static and dynamic measurements.
 
     Attributes:
@@ -191,6 +218,8 @@ class DatasetGenerator:
         time_between_events_per_subj: A random variable for the time between events for each subject.
         vocab_size: The number of unique codes.
         static_vocab_size: The number of unique static codes.
+        start_datetime_per_subject: A random variable for the start datetime per subject.
+
 
     Raises:
         ValueError: Various validation errors for the input parameters will raise value errors.
@@ -198,63 +227,49 @@ class DatasetGenerator:
     Examples:
         >>> rng = np.random.default_rng(1)
         >>> kwargs = dict(
+        ...     start_datetime_per_subject=DatetimeGenerator([
+        ...         np.datetime64("2021-01-01"), np.datetime64("2022-02-02"), np.datetime64("2023-03-03")
+        ...     ]),
         ...     num_events_per_subject=PositiveIntGenerator([1, 2, 3]),
         ...     num_measurements_per_event=PositiveIntGenerator([1, 2, 3]),
         ...     num_static_measurements_per_subject=PositiveIntGenerator([2]),
         ...     frac_code_occurrences_with_value=ProportionGenerator([0, 0, 0.9]),
         ...     time_between_events_per_subj=PositiveNumGenerator([1, 2.5, 3]),
         ... )
-        >>> DG = DatasetGenerator(vocab_size=16, static_vocab_size=4, **kwargs)
+        >>> DG = MEDSDataDFGenerator(vocab_size=16, static_vocab_size=4, **kwargs)
         >>> X = DG.rvs(3, rng)
-        >>> sorted(list(X.keys()))
-        ['dynamic_code', 'dynamic_value', 'static_code', 'timedelta']
-        >>> assert len(set(len(v) for v in X.values())) == 1, "All lengths are equal"
-        >>> X["static_code"] # doctest: +NORMALIZE_WHITESPACE
-        [array([1, 2]),
-         array([3, 3]),
-         array([1, 3])]
-        >>> X["timedelta"] # doctest: +NORMALIZE_WHITESPACE
-        [array([4.75562864, 0.79979315, 4.50311233]),
-         array([0.44675213, 1.03395199]),
-         array([0.27679474, 0.79441353])]
-        >>> X["dynamic_code"] # doctest: +NORMALIZE_WHITESPACE
-        [[array([10]), array([4, 9, 4]), array([14, 12])],
-         [array([9]), array([ 7, 14, 17])],
-         [array([15]), array([14, 18])]]
-        >>> X["dynamic_value"] # doctest: +NORMALIZE_WHITESPACE
-        [[array([nan]), array([nan, nan, nan]), array([       nan, 0.89116695])],
-         [array([nan]), array([        nan,         nan, -0.98218812])],
-         [array([nan]), array([nan, nan])]]
-        >>> X = DG.rvs(3, rng)
-        >>> X["static_code"] # doctest: +NORMALIZE_WHITESPACE
-        [array([0, 1]),
-         array([0, 2]),
-         array([1, 3])]
-        >>> X["timedelta"] # doctest: +NORMALIZE_WHITESPACE
-        [array([0.96372513]),
-         array([1.1178155, 0.3845494, 1.0638919]),
-         array([7.96575692])]
-        >>> X["dynamic_code"] # doctest: +NORMALIZE_WHITESPACE
-        [[array([ 9, 17,  7])],
-         [array([11]), array([14, 11, 17]), array([10])],
-         [array([13, 18])]]
-        >>> X["dynamic_value"] # doctest: +NORMALIZE_WHITESPACE
-        [[array([       nan, 0.14425709,        nan])],
-         [array([nan]), array([ 2.54789782,         nan, -1.25069576]), array([nan])],
-         [array([nan, nan])]]
-        >>> DatasetGenerator(vocab_size="foo", static_vocab_size=4, **kwargs)
+        >>> X # doctest: +NORMALIZE_WHITESPACE
+        shape: (19, 4)
+        ┌────────────┬──────┬─────────────────────┬───────────────┐
+        │ subject_id ┆ code ┆ time                ┆ numeric_value │
+        │ ---        ┆ ---  ┆ ---                 ┆ ---           │
+        │ i64        ┆ i64  ┆ datetime[μs]        ┆ f64           │
+        ╞════════════╪══════╪═════════════════════╪═══════════════╡
+        │ 0          ┆ 1    ┆ null                ┆ null          │
+        │ 0          ┆ 2    ┆ null                ┆ null          │
+        │ 0          ┆ 15   ┆ 2023-03-03 00:00:00 ┆ NaN           │
+        │ 0          ┆ 12   ┆ 2023-03-03 00:00:04 ┆ -0.944752     │
+        │ 0          ┆ 11   ┆ 2023-03-03 00:00:04 ┆ -0.09827      │
+        │ …          ┆ …    ┆ …                   ┆ …             │
+        │ 2          ┆ 1    ┆ null                ┆ null          │
+        │ 2          ┆ 0    ┆ null                ┆ null          │
+        │ 2          ┆ 4    ┆ 2022-02-02 00:00:02 ┆ NaN           │
+        │ 2          ┆ 11   ┆ 2022-02-02 00:00:05 ┆ -0.345216     │
+        │ 2          ┆ 13   ┆ 2022-02-02 00:00:05 ┆ -1.481818     │
+        └────────────┴──────┴─────────────────────┴───────────────┘
+        >>> MEDSDataDFGenerator(vocab_size="foo", static_vocab_size=4, **kwargs)
         Traceback (most recent call last):
             ...
         ValueError: vocab_size must be an integer.
-        >>> DatasetGenerator(vocab_size=0, static_vocab_size=4, **kwargs)
+        >>> MEDSDataDFGenerator(vocab_size=0, static_vocab_size=4, **kwargs)
         Traceback (most recent call last):
             ...
         ValueError: vocab_size must be positive.
-        >>> DatasetGenerator(vocab_size=1, static_vocab_size=3.0, **kwargs)
+        >>> MEDSDataDFGenerator(vocab_size=1, static_vocab_size=3.0, **kwargs)
         Traceback (most recent call last):
             ...
         ValueError: static_vocab_size must be an integer.
-        >>> DatasetGenerator(vocab_size=1, static_vocab_size=-1, **kwargs)
+        >>> MEDSDataDFGenerator(vocab_size=1, static_vocab_size=-1, **kwargs)
         Traceback (most recent call last):
             ...
         ValueError: static_vocab_size must be positive.
@@ -267,6 +282,7 @@ class DatasetGenerator:
     time_between_events_per_subj: PositiveNumGenerator
     vocab_size: POSITIVE_INT
     static_vocab_size: POSITIVE_INT
+    start_datetime_per_subject: DatetimeGenerator
 
     def __post_init__(self):
         if not isinstance(self.vocab_size, int):
@@ -288,25 +304,30 @@ class DatasetGenerator:
         )[:-1]
 
         dataset = {}
-        dataset["static_code"] = []
-        dataset["timedelta"] = []
-        dataset["dynamic_code"] = []
-        dataset["dynamic_value"] = []
+        dataset["subject_id"] = []
+        dataset["code"] = []
+        dataset["time"] = []
+        dataset["numeric_value"] = []
 
         codes_value_props = self.frac_code_occurrences_with_value.rvs(self.vocab_size, rng)
 
-        for n_static_measurements, n_measurements_per_event, avg_time_between_events in zip(
+        for subject, n_static_measurements, n_measurements_per_event, avg_time_between_events in zip(
+            range(N_subjects),
             n_static_measurements_per_subject,
             n_measurements_per_event_per_subject,
             avg_time_between_events_per_subj,
         ):
-            dataset["static_code"].append(rng.choice(self.static_vocab_size, size=n_static_measurements))
+            dataset["code"].extend(rng.choice(self.static_vocab_size, size=n_static_measurements))
+            dataset["subject_id"].extend([subject] * n_static_measurements)
+            dataset["time"].extend([None] * n_static_measurements)
+            dataset["numeric_value"].extend([None] * n_static_measurements)
+
+            start_datetime = self.start_datetime_per_subject.rvs(1, rng)[0]
 
             n_events = len(n_measurements_per_event)
-            dataset["timedelta"].append(rng.exponential(avg_time_between_events, size=n_events))
+            timedeltas = rng.exponential(avg_time_between_events, size=n_events)
 
-            codes_per_event, values_per_event = [], []
-            for n in n_measurements_per_event:
+            for n, timedelta in zip(n_measurements_per_event, timedeltas):
                 codes_obs = rng.choice(self.vocab_size, size=n)
                 value_obs_p = codes_value_props[codes_obs]
                 value_obs = rng.random(size=n) < value_obs_p
@@ -314,9 +335,10 @@ class DatasetGenerator:
 
                 values = np.where(value_obs, value_num, np.nan)
 
-                codes_per_event.append(codes_obs + self.static_vocab_size)
-                values_per_event.append(values)
-            dataset["dynamic_code"].append(codes_per_event)
-            dataset["dynamic_value"].append(values_per_event)
+                dataset["code"].extend(codes_obs + self.static_vocab_size)
+                dataset["subject_id"].extend([subject] * n)
+                dataset["time"].extend([start_datetime + np.timedelta64(int(timedelta), "s")] * n)
+                dataset["numeric_value"].extend(values)
 
-        return dataset
+        dataset["time"] = np.array(dataset["time"], dtype="datetime64[us]")
+        return pl.DataFrame(dataset)

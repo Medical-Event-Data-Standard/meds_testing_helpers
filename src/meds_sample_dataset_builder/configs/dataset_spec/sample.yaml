@@ -4,6 +4,9 @@ defaults:
 
 vocab_size: 1024
 
+start_datetime_per_subject:
+  X: ["2019-01-01T00:00:00", "2019-01-02T00:00:00", "2019-01-03T00:00:00"]
+
 # Subjects have events on average every 1, 2, 3, 4, or 5 days with uniform probability across subjects.
 time_between_events_per_subj:
   X: [1, 2, 3, 4, 5]

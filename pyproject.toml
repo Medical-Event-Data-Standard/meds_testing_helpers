@@ -13,18 +13,22 @@ readme = "README.md"
 requires-python = ">=3.10"
 classifiers = [
     "Programming Language :: Python :: 3",
+    "Framework :: Pytest",
     "License :: OSI Approved :: MIT License",
     "Operating System :: OS Independent",
 ]
-dependencies = ["annotated-types", "numpy", "hydra-core"]
+dependencies = ["annotated-types", "numpy", "hydra-core", "polars", "pytest", "meds==0.3.3"]
 
 [project.optional-dependencies]
 dev = ["pre-commit<4"]
-tests = ["pytest", "pytest-cov"]
+tests = ["pytest-cov"]
 
 [project.scripts]
-sample_MEDS = "meds_sample_dataset_builder.__main__:main"
+sample_MEDS_dataset = "meds_sample_dataset_builder.__main__:main"
 
 [project.urls]
 Homepage = "https://github.com/Medical-Event-Data-Standard/meds_sample_dataset_builder"
 Issues = "https://github.com/Medical-Event-Data-Standard/meds_sample_dataset_builder/issues"
+
+[project.entry-points.pytest11]
+meds_sample_dataset_builder = "meds_sample_dataset_builder.pytest_plugin"
