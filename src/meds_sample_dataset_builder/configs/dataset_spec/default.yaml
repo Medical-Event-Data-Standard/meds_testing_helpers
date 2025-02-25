@@ -1,4 +1,4 @@
-_target_: sample_dataset_builder.DatasetGenerator
+_target_: sample_dataset_builder.MEDSDataDFGenerator
 
 static_vocab_size: 16
 vocab_size: ???

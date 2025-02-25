@@ -240,23 +240,23 @@ class MEDSDataDFGenerator:
         >>> X = DG.rvs(3, rng)
         >>> X # doctest: +NORMALIZE_WHITESPACE
         shape: (19, 4)
-        ┌────────────┬──────┬─────────────────────┬───────────────┐
-        │ subject_id ┆ code ┆ time                ┆ numeric_value │
-        │ ---        ┆ ---  ┆ ---                 ┆ ---           │
-        │ i64        ┆ i64  ┆ datetime[μs]        ┆ f64           │
-        ╞════════════╪══════╪═════════════════════╪═══════════════╡
-        │ 0          ┆ 1    ┆ null                ┆ null          │
-        │ 0          ┆ 2    ┆ null                ┆ null          │
-        │ 0          ┆ 15   ┆ 2023-03-03 00:00:00 ┆ NaN           │
-        │ 0          ┆ 12   ┆ 2023-03-03 00:00:04 ┆ -0.944752     │
-        │ 0          ┆ 11   ┆ 2023-03-03 00:00:04 ┆ -0.09827      │
-        │ …          ┆ …    ┆ …                   ┆ …             │
-        │ 2          ┆ 1    ┆ null                ┆ null          │
-        │ 2          ┆ 0    ┆ null                ┆ null          │
-        │ 2          ┆ 4    ┆ 2022-02-02 00:00:02 ┆ NaN           │
-        │ 2          ┆ 11   ┆ 2022-02-02 00:00:05 ┆ -0.345216     │
-        │ 2          ┆ 13   ┆ 2022-02-02 00:00:05 ┆ -1.481818     │
-        └────────────┴──────┴─────────────────────┴───────────────┘
+        ┌────────────┬─────────┬─────────────────────┬───────────────┐
+        │ subject_id ┆ code    ┆ time                ┆ numeric_value │
+        │ ---        ┆ ---     ┆ ---                 ┆ ---           │
+        │ i64        ┆ str     ┆ datetime[μs]        ┆ f64           │
+        ╞════════════╪═════════╪═════════════════════╪═══════════════╡
+        │ 0          ┆ code_1  ┆ null                ┆ null          │
+        │ 0          ┆ code_2  ┆ null                ┆ null          │
+        │ 0          ┆ code_15 ┆ 2023-03-03 00:00:00 ┆ NaN           │
+        │ 0          ┆ code_12 ┆ 2023-03-03 00:00:04 ┆ -0.944752     │
+        │ 0          ┆ code_11 ┆ 2023-03-03 00:00:04 ┆ -0.09827      │
+        │ …          ┆ …       ┆ …                   ┆ …             │
+        │ 2          ┆ code_1  ┆ null                ┆ null          │
+        │ 2          ┆ code_0  ┆ null                ┆ null          │
+        │ 2          ┆ code_4  ┆ 2022-02-02 00:00:02 ┆ NaN           │
+        │ 2          ┆ code_11 ┆ 2022-02-02 00:00:05 ┆ -0.345216     │
+        │ 2          ┆ code_13 ┆ 2022-02-02 00:00:05 ┆ -1.481818     │
+        └────────────┴─────────┴─────────────────────┴───────────────┘
         >>> MEDSDataDFGenerator(vocab_size="foo", static_vocab_size=4, **kwargs)
         Traceback (most recent call last):
             ...
@@ -317,7 +317,8 @@ class MEDSDataDFGenerator:
             n_measurements_per_event_per_subject,
             avg_time_between_events_per_subj,
         ):
-            dataset["code"].extend(rng.choice(self.static_vocab_size, size=n_static_measurements))
+            static_codes = rng.choice(self.static_vocab_size, size=n_static_measurements)
+            dataset["code"].extend(f"code_{i}" for i in static_codes)
             dataset["subject_id"].extend([subject] * n_static_measurements)
             dataset["time"].extend([None] * n_static_measurements)
             dataset["numeric_value"].extend([None] * n_static_measurements)
@@ -335,7 +336,8 @@ class MEDSDataDFGenerator:
 
                 values = np.where(value_obs, value_num, np.nan)
 
-                dataset["code"].extend(codes_obs + self.static_vocab_size)
+                codes = codes_obs + self.static_vocab_size
+                dataset["code"].extend([f"code_{i}" for i in codes])
                 dataset["subject_id"].extend([subject] * n)
                 dataset["time"].extend([start_datetime + np.timedelta64(int(timedelta), "s")] * n)
                 dataset["numeric_value"].extend(values)
