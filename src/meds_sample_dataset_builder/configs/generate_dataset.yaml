@@ -4,7 +4,6 @@ defaults:
 
 seed: 1
 output_dir: "sample_dataset"
-output_filepath: "dataset.pkl"
 do_overwrite: False
 
 N_subjects: 1000

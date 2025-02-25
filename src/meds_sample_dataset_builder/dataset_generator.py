@@ -1,11 +1,90 @@
+import json
 from dataclasses import dataclass
+from datetime import datetime
+from pathlib import Path
 from typing import Annotated, Any
 
 import numpy as np
 import polars as pl
+import pyarrow as pa
+import pyarrow.parquet as pq
 from annotated_types import Ge, Gt
+from meds import DatasetMetadata
+from meds import __version__ as meds_version
+from meds import (
+    code_field,
+    code_metadata_filepath,
+    code_metadata_schema,
+    data_schema,
+    data_subdirectory,
+    dataset_metadata_filepath,
+    description_field,
+    held_out_split,
+    numeric_value_field,
+    parent_codes_field,
+    subject_id_field,
+    subject_split_schema,
+    subject_splits_filepath,
+    time_field,
+    train_split,
+    tuning_split,
+)
 
-SAMPLE_DATASET_T = pl.DataFrame
+from . import __package_name__, __version__
+
+
+@dataclass
+class MEDSDataset:
+    data_shards: dict[str, pl.DataFrame]
+    dataset_metadata: DatasetMetadata
+    code_metadata: pl.DataFrame
+    subject_splits: pl.DataFrame | None = None
+
+    @staticmethod
+    def _align_df(df: pl.DataFrame, schema: pa.Schema) -> pa.Table:
+        return df.select(schema.names).to_arrow().cast(schema)
+
+    @property
+    def validated_shards(self) -> dict[str, pa.Table]:
+        return {shard: self._align_df(df, data_schema()) for shard, df in self.data_shards.items()}
+
+    @property
+    def validated_code_metadata(self) -> pa.Table:
+        return self._align_df(self.code_metadata, code_metadata_schema())
+
+    @property
+    def validated_subject_splits(self) -> pa.Table | None:
+        if self.subject_splits is None:
+            return None
+        return self._align_df(self.subject_splits, subject_split_schema)
+
+    def __post_init__(self):
+        # These will raise exceptions if the data is not valid.
+        self.validated_shards
+        self.validated_code_metadata
+        self.validated_subject_splits
+
+    def write(self, output_dir: Path):
+        data_dir = output_dir / data_subdirectory
+        data_dir.mkdir(parents=True, exist_ok=True)
+
+        for shard, table in self.validated_shards.items():
+            pq.write_table(table, data_dir / f"{shard}.parquet")
+
+        code_metadata_fp = output_dir / code_metadata_filepath
+        code_metadata_fp.parent.mkdir(parents=True, exist_ok=True)
+        pq.write_table(self.validated_code_metadata, code_metadata_fp)
+
+        dataset_metadata_fp = output_dir / dataset_metadata_filepath
+        dataset_metadata_fp.parent.mkdir(parents=True, exist_ok=True)
+        dataset_metadata_fp.write_text(json.dumps(self.dataset_metadata))
+
+        if self.subject_splits is not None:
+            subject_splits_fp = output_dir / subject_splits_filepath
+            subject_splits_fp.parent.mkdir(parents=True, exist_ok=True)
+            pq.write_table(self.validated_subject_splits, subject_splits_fp)
+
+
 NUM = int | float
 POSITIVE_INT = Annotated[int, Ge(0)]
 NON_NEGATIVE_NUM = Annotated[NUM, Gt(-1)]
@@ -237,7 +316,7 @@ class MEDSDataDFGenerator:
         ...     time_between_events_per_subj=PositiveNumGenerator([1, 2.5, 3]),
         ... )
         >>> DG = MEDSDataDFGenerator(vocab_size=16, static_vocab_size=4, **kwargs)
-        >>> X = DG.rvs(3, rng)
+        >>> X = DG.sample(3, rng)
         >>> X # doctest: +NORMALIZE_WHITESPACE
         shape: (19, 4)
         ┌────────────┬─────────┬─────────────────────┬───────────────┐
@@ -294,7 +373,7 @@ class MEDSDataDFGenerator:
         if self.static_vocab_size <= 0:
             raise ValueError("static_vocab_size must be positive.")
 
-    def rvs(self, N_subjects: int, rng: np.random.Generator) -> SAMPLE_DATASET_T:
+    def sample(self, N_subjects: int, rng: np.random.Generator) -> pl.DataFrame:
         avg_time_between_events_per_subj = self.time_between_events_per_subj.rvs(N_subjects, rng)
         n_static_measurements_per_subject = self.num_static_measurements_per_subject.rvs(N_subjects, rng)
         n_events_per_subject = self.num_events_per_subject.rvs(N_subjects, rng)
@@ -304,10 +383,10 @@ class MEDSDataDFGenerator:
         )[:-1]
 
         dataset = {}
-        dataset["subject_id"] = []
-        dataset["code"] = []
-        dataset["time"] = []
-        dataset["numeric_value"] = []
+        dataset[subject_id_field] = []
+        dataset[code_field] = []
+        dataset[time_field] = []
+        dataset[numeric_value_field] = []
 
         codes_value_props = self.frac_code_occurrences_with_value.rvs(self.vocab_size, rng)
 
@@ -318,10 +397,10 @@ class MEDSDataDFGenerator:
             avg_time_between_events_per_subj,
         ):
             static_codes = rng.choice(self.static_vocab_size, size=n_static_measurements)
-            dataset["code"].extend(f"code_{i}" for i in static_codes)
-            dataset["subject_id"].extend([subject] * n_static_measurements)
-            dataset["time"].extend([None] * n_static_measurements)
-            dataset["numeric_value"].extend([None] * n_static_measurements)
+            dataset[code_field].extend(f"code_{i}" for i in static_codes)
+            dataset[subject_id_field].extend([subject] * n_static_measurements)
+            dataset[time_field].extend([None] * n_static_measurements)
+            dataset[numeric_value_field].extend([None] * n_static_measurements)
 
             start_datetime = self.start_datetime_per_subject.rvs(1, rng)[0]
 
@@ -337,10 +416,231 @@ class MEDSDataDFGenerator:
                 values = np.where(value_obs, value_num, np.nan)
 
                 codes = codes_obs + self.static_vocab_size
-                dataset["code"].extend([f"code_{i}" for i in codes])
-                dataset["subject_id"].extend([subject] * n)
-                dataset["time"].extend([start_datetime + np.timedelta64(int(timedelta), "s")] * n)
-                dataset["numeric_value"].extend(values)
+                dataset[code_field].extend([f"code_{i}" for i in codes])
+                dataset[subject_id_field].extend([subject] * n)
+                dataset[time_field].extend([start_datetime + np.timedelta64(int(timedelta), "s")] * n)
+                dataset[numeric_value_field].extend(values)
 
-        dataset["time"] = np.array(dataset["time"], dtype="datetime64[us]")
+        dataset[time_field] = np.array(dataset[time_field], dtype="datetime64[us]")
         return pl.DataFrame(dataset)
+
+
+@dataclass
+class MEDSDatasetGenerator:
+    """A class to generate whole MEDS datasets, including core data and metadata.
+
+    Note that these datasets are _not_ meaningful datasets, but rather are just random data for use in testing
+    or benchmarking purposes.
+
+    Args:
+        data_generator: The data generator to use.
+        shard_size: The number of subjects per shard. If None, the dataset will be split into two shards.
+        train_frac: The fraction of subjects to use for training.
+        tuning_frac: The fraction of subjects to use for tuning. If None, the remaining fraction will be used.
+            If both tuning_frac and held_out_frac are None, the remaining fraction will be split evenly
+            between the two.
+        held_out_frac: The fraction of subjects to use for the held-out set. If None, the remaining fraction
+            will be used. If both tuning_frac and held_out_frac are None, the remaining fraction will be split
+            evenly between the two.
+        dataset_name: The name of the dataset. If None, a default name will be generated.
+
+    Examples:
+        >>> rng = np.random.default_rng(1)
+        >>> data_df_gen = MEDSDataDFGenerator(
+        ...     vocab_size=16,
+        ...     static_vocab_size=4,
+        ...     start_datetime_per_subject=DatetimeGenerator([
+        ...         np.datetime64("2021-01-01"), np.datetime64("2022-02-02"), np.datetime64("2023-03-03")
+        ...     ]),
+        ...     num_events_per_subject=PositiveIntGenerator([1, 2, 3]),
+        ...     num_measurements_per_event=PositiveIntGenerator([1, 2, 3]),
+        ...     num_static_measurements_per_subject=PositiveIntGenerator([2]),
+        ...     frac_code_occurrences_with_value=ProportionGenerator([0, 0, 0.9]),
+        ...     time_between_events_per_subj=PositiveNumGenerator([1, 2.5, 3]),
+        ... )
+        >>> G = MEDSDatasetGenerator(data_generator=data_df_gen, shard_size=3, dataset_name="MEDS_Sample")
+        >>> dataset = G.sample(10, rng)
+        >>> for k, v in dataset.dataset_metadata.items(): print(f"{k}: {v}")
+        dataset_name: MEDS_Sample
+        dataset_version: 0.0.1
+        etl_name: meds_sample_dataset_builder
+        etl_version: 0.0.1
+        meds_version: 0.3.3
+        ...
+        >>> dataset.code_metadata # This is always empty for now as these codes are meaningless.
+        shape: (0, 3)
+        ┌──────┬─────────────┬──────────────┐
+        │ code ┆ description ┆ parent_codes │
+        │ ---  ┆ ---         ┆ ---          │
+        │ str  ┆ str         ┆ list[str]    │
+        ╞══════╪═════════════╪══════════════╡
+        └──────┴─────────────┴──────────────┘
+        >>> dataset.subject_splits
+        shape: (10, 2)
+        ┌────────────┬──────────┐
+        │ subject_id ┆ split    │
+        │ ---        ┆ ---      │
+        │ i64        ┆ str      │
+        ╞════════════╪══════════╡
+        │ 7          ┆ train    │
+        │ 6          ┆ train    │
+        │ 1          ┆ train    │
+        │ 2          ┆ train    │
+        │ 5          ┆ train    │
+        │ 3          ┆ train    │
+        │ 8          ┆ train    │
+        │ 0          ┆ train    │
+        │ 4          ┆ tuning   │
+        │ 9          ┆ held_out │
+        └────────────┴──────────┘
+        >>> len(dataset.data_shards)
+        3
+        >>> dataset.data_shards["0"]
+        shape: (19, 4)
+        ┌────────────┬─────────┬─────────────────────┬───────────────┐
+        │ subject_id ┆ code    ┆ time                ┆ numeric_value │
+        │ ---        ┆ ---     ┆ ---                 ┆ ---           │
+        │ i64        ┆ str     ┆ datetime[μs]        ┆ f64           │
+        ╞════════════╪═════════╪═════════════════════╪═══════════════╡
+        │ 0          ┆ code_1  ┆ null                ┆ null          │
+        │ 0          ┆ code_2  ┆ null                ┆ null          │
+        │ 0          ┆ code_15 ┆ 2023-03-03 00:00:00 ┆ NaN           │
+        │ 0          ┆ code_12 ┆ 2023-03-03 00:00:04 ┆ -0.944752     │
+        │ 0          ┆ code_11 ┆ 2023-03-03 00:00:04 ┆ -0.09827      │
+        │ …          ┆ …       ┆ …                   ┆ …             │
+        │ 2          ┆ code_1  ┆ null                ┆ null          │
+        │ 2          ┆ code_0  ┆ null                ┆ null          │
+        │ 2          ┆ code_4  ┆ 2022-02-02 00:00:02 ┆ NaN           │
+        │ 2          ┆ code_11 ┆ 2022-02-02 00:00:05 ┆ -0.345216     │
+        │ 2          ┆ code_13 ┆ 2022-02-02 00:00:05 ┆ -1.481818     │
+        └────────────┴─────────┴─────────────────────┴───────────────┘
+        >>> dataset.data_shards["1"]
+        shape: (15, 4)
+        ┌────────────┬─────────┬─────────────────────┬───────────────┐
+        │ subject_id ┆ code    ┆ time                ┆ numeric_value │
+        │ ---        ┆ ---     ┆ ---                 ┆ ---           │
+        │ i64        ┆ str     ┆ datetime[μs]        ┆ f64           │
+        ╞════════════╪═════════╪═════════════════════╪═══════════════╡
+        │ 3          ┆ code_2  ┆ null                ┆ null          │
+        │ 3          ┆ code_0  ┆ null                ┆ null          │
+        │ 3          ┆ code_7  ┆ 2021-01-01 00:00:00 ┆ NaN           │
+        │ 3          ┆ code_18 ┆ 2021-01-01 00:00:00 ┆ NaN           │
+        │ 4          ┆ code_1  ┆ null                ┆ null          │
+        │ …          ┆ …       ┆ …                   ┆ …             │
+        │ 4          ┆ code_9  ┆ 2022-02-02 00:00:07 ┆ NaN           │
+        │ 5          ┆ code_0  ┆ null                ┆ null          │
+        │ 5          ┆ code_3  ┆ null                ┆ null          │
+        │ 5          ┆ code_9  ┆ 2023-03-03 00:00:01 ┆ NaN           │
+        │ 5          ┆ code_18 ┆ 2023-03-03 00:00:01 ┆ NaN           │
+        └────────────┴─────────┴─────────────────────┴───────────────┘
+        >>> dataset.data_shards["2"]
+        shape: (26, 4)
+        ┌────────────┬─────────┬─────────────────────┬───────────────┐
+        │ subject_id ┆ code    ┆ time                ┆ numeric_value │
+        │ ---        ┆ ---     ┆ ---                 ┆ ---           │
+        │ i64        ┆ str     ┆ datetime[μs]        ┆ f64           │
+        ╞════════════╪═════════╪═════════════════════╪═══════════════╡
+        │ 6          ┆ code_3  ┆ null                ┆ null          │
+        │ 6          ┆ code_1  ┆ null                ┆ null          │
+        │ 6          ┆ code_10 ┆ 2023-03-03 00:00:00 ┆ 2.871567      │
+        │ 6          ┆ code_4  ┆ 2023-03-03 00:00:00 ┆ -1.554731     │
+        │ 6          ┆ code_7  ┆ 2023-03-03 00:00:00 ┆ NaN           │
+        │ …          ┆ …       ┆ …                   ┆ …             │
+        │ 9          ┆ code_15 ┆ 2023-03-03 00:00:00 ┆ NaN           │
+        │ 9          ┆ code_15 ┆ 2023-03-03 00:00:00 ┆ NaN           │
+        │ 9          ┆ code_7  ┆ 2023-03-03 00:00:00 ┆ NaN           │
+        │ 9          ┆ code_14 ┆ 2023-03-03 00:00:00 ┆ NaN           │
+        │ 9          ┆ code_17 ┆ 2023-03-03 00:00:00 ┆ NaN           │
+        └────────────┴─────────┴─────────────────────┴───────────────┘
+    """
+
+    data_generator: MEDSDataDFGenerator
+    shard_size: POSITIVE_INT | None = None
+    train_frac: float = 0.8
+    tuning_frac: float | None = None
+    held_out_frac: float | None = None
+    dataset_name: str | None = None
+
+    def __post_init__(self):
+        if self.shard_size is not None and self.shard_size <= 0:
+            raise ValueError(f"shard_size must be positive; got {self.shard_size}")
+        if self.train_frac < 0 or self.train_frac > 1:
+            raise ValueError(f"train_frac must be between 0 and 1; got {self.train_frac}")
+
+        if self.tuning_frac is None and self.held_out_frac is None:
+            leftover = 1 - self.train_frac
+            self.tuning_frac = round(leftover / 2, 4)
+            self.held_out_frac = round(leftover / 2, 4)
+        elif self.tuning_frac is None:
+            self.tuning_frac = 1 - self.train_frac - self.held_out_frac
+        elif self.held_out_frac is None:
+            self.held_out_frac = 1 - self.train_frac - self.tuning_frac
+
+        if self.tuning_frac < 0 or self.tuning_frac > 1:
+            raise ValueError(f"tuning_frac must be between 0 and 1; got {self.tuning_frac}")
+        if self.held_out_frac < 0 or self.held_out_frac > 1:
+            raise ValueError(f"held_out_frac must be between 0 and 1; got {self.held_out_frac}")
+
+        if self.train_frac + self.tuning_frac + self.held_out_frac != 1:
+            raise ValueError(
+                "The sum of train_frac, tuning_frac, and held_out_frac must be 1. Got "
+                f"{self.train_frac} + {self.tuning_frac} + {self.held_out_frac} = "
+                f"{self.train_frac + self.tuning_frac + self.held_out_frac}."
+            )
+
+        if self.dataset_name is None:
+            self.dataset_name = f"MEDS_Sample_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+
+    def sample(self, N_subjects: int, rng: np.random.Generator) -> MEDSDataset:
+        n_shards = N_subjects // self.shard_size if self.shard_size is not None else 2
+        subjects_per_shard = N_subjects // n_shards
+        shard_sizes = [subjects_per_shard] * (n_shards - 1) + [
+            N_subjects - subjects_per_shard * (n_shards - 1)
+        ]
+
+        data_shards = {}
+        total_subjects = 0
+        for i, size in enumerate(shard_sizes):
+            data_shards[str(i)] = self.data_generator.sample(size, rng).with_columns(
+                (pl.col(subject_id_field) + total_subjects).alias(subject_id_field)
+            )
+            total_subjects += size
+
+        dataset_metadata = DatasetMetadata(
+            dataset_name=self.dataset_name,
+            dataset_version="0.0.1",
+            etl_name=__package_name__,
+            etl_version=__version__,
+            meds_version=meds_version,
+            created_at=datetime.now(),
+            extension_columns=[],
+        )
+
+        code_metadata = pl.DataFrame(
+            {
+                code_field: pl.Series([], dtype=pl.Utf8),
+                description_field: pl.Series([], dtype=pl.Utf8),
+                parent_codes_field: pl.Series([], dtype=pl.List(pl.Utf8)),
+            }
+        )
+
+        subjects = list(range(N_subjects))
+        rng.shuffle(subjects)
+        N_train = int(N_subjects * self.train_frac)
+        N_tuning = int(N_subjects * self.tuning_frac)
+        N_held_out = N_subjects - N_train - N_tuning
+
+        split = [train_split] * N_train + [tuning_split] * N_tuning + [held_out_split] * N_held_out
+        subject_splits = pl.DataFrame(
+            {
+                subject_id_field: pl.Series(subjects, dtype=pl.Int64),
+                "split": pl.Series(split, dtype=pl.Utf8),
+            }
+        )
+
+        return MEDSDataset(
+            data_shards=data_shards,
+            dataset_metadata=dataset_metadata,
+            code_metadata=code_metadata,
+            subject_splits=subject_splits,
+        )
