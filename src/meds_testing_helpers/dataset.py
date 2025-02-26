@@ -258,10 +258,20 @@ class MEDSDataset:
                 time_schema[time_col] = read_schema.pop(time_col)
                 read_schema[time_col] = pl.String
 
-        df = pl.read_csv(StringIO(csv), schema=read_schema)
+        try:
+            cols = csv.split("\n")[0].split(",")
+            df = pl.read_csv(StringIO(csv), schema={col: read_schema[col] for col in cols})
+        except Exception as e:
+            raise ValueError(f"Failed to read:\n{csv}\nUnder schema:\n{read_schema}") from e
         cols = df.columns
-        for time_col, schema in time_schema.items():
-            df = df.with_column(time_col, df[time_col].str.strptime(schema, cls.DEFAULT_CSV_TS_FORMAT))
+
+        if time_schema:
+            df = df.with_columns(
+                *[
+                    pl.col(time_col).str.strptime(schema, cls.DEFAULT_CSV_TS_FORMAT).alias(time_col)
+                    for time_col, schema in time_schema.items()
+                ]
+            )
         return df.select(cols)
 
     @classmethod
@@ -284,7 +294,7 @@ class MEDSDataset:
 
         if "parent_codes" in df.columns:
             cols = df.columns
-            df = df.with_column(
+            df = df.with_columns(
                 "parent_codes", df["parent_codes"].str.split(", ").cast(parent_codes_real)
             ).select(cols)
 
@@ -318,8 +328,72 @@ class MEDSDataset:
         Examples:
             >>> from meds_testing_helpers.static_sample_data import SIMPLE_STATIC_SHARDED_BY_SPLIT
             >>> D = MEDSDataset.from_yaml(SIMPLE_STATIC_SHARDED_BY_SPLIT)
-            >>> D
-        """
+            >>> print(D)
+            MEDSDataset:
+            dataset_metadata:
+            data_shards:
+              - train/0:
+                pyarrow.Table
+                subject_id: int64
+                time: timestamp[us]
+                code: string
+                numeric_value: float
+                ----
+                subject_id: [[239684,239684,239684,239684,239684,...,1195293,1195293,1195293,1195293,1195293],[1195293]]
+                time: [[null,null,1980-12-28 00:00:00.000000,2010-05-11 17:41:51.000000,2010-05-11 17:41:51.000000,...,2010-06-20 20:12:31.000000,2010-06-20 20:24:44.000000,2010-06-20 20:24:44.000000,2010-06-20 20:41:33.000000,2010-06-20 20:41:33.000000],[2010-06-20 20:50:04.000000]]
+                code: [["EYE_COLOR//BROWN","HEIGHT","DOB","ADMISSION//CARDIAC","HR",...,"TEMP","HR","TEMP","HR","TEMP"],["DISCHARGE"]]
+                numeric_value: [[null,175.27112,null,null,102.6,...,99.8,107.7,100,107.5,100.4],[null]]
+              - train/1:
+                pyarrow.Table
+                subject_id: int64
+                time: timestamp[us]
+                code: string
+                numeric_value: float
+                ----
+                subject_id: [[68729,68729,68729,68729,68729,...,814703,814703,814703,814703,814703],[814703]]
+                time: [[null,null,1978-03-09 00:00:00.000000,2010-05-26 02:30:56.000000,2010-05-26 02:30:56.000000,...,null,1976-03-28 00:00:00.000000,2010-02-05 05:55:39.000000,2010-02-05 05:55:39.000000,2010-02-05 05:55:39.000000],[2010-02-05 07:02:30.000000]]
+                code: [["EYE_COLOR//HAZEL","HEIGHT","DOB","ADMISSION//PULMONARY","HR",...,"HEIGHT","DOB","ADMISSION//ORTHOPEDIC","HR","TEMP"],["DISCHARGE"]]
+                numeric_value: [[null,160.39531,null,null,86,...,156.4856,null,null,170.2,100.1],[null]]
+              - tuning/0:
+                pyarrow.Table
+                subject_id: int64
+                time: timestamp[us]
+                code: string
+                numeric_value: float
+                ----
+                subject_id: [[754281,754281,754281,754281,754281,754281],[754281]]
+                time: [[null,null,1988-12-19 00:00:00.000000,2010-01-03 06:27:59.000000,2010-01-03 06:27:59.000000,2010-01-03 06:27:59.000000],[2010-01-03 08:22:13.000000]]
+                code: [["EYE_COLOR//BROWN","HEIGHT","DOB","ADMISSION//PULMONARY","HR","TEMP"],["DISCHARGE"]]
+                numeric_value: [[null,166.22261,null,null,142,99.8],[null]]
+              - held_out/0:
+                pyarrow.Table
+                subject_id: int64
+                time: timestamp[us]
+                code: string
+                numeric_value: float
+                ----
+                subject_id: [[1500733,1500733,1500733,1500733,1500733,1500733,1500733,1500733,1500733,1500733],[1500733]]
+                time: [[null,null,1986-07-20 00:00:00.000000,2010-06-03 14:54:38.000000,2010-06-03 14:54:38.000000,2010-06-03 14:54:38.000000,2010-06-03 15:39:49.000000,2010-06-03 15:39:49.000000,2010-06-03 16:20:49.000000,2010-06-03 16:20:49.000000],[2010-06-03 16:44:26.000000]]
+                code: [["EYE_COLOR//BROWN","HEIGHT","DOB","ADMISSION//ORTHOPEDIC","HR","TEMP","HR","TEMP","HR","TEMP"],["DISCHARGE"]]
+                numeric_value: [[null,158.60132,null,null,91.4,100,84.4,100.3,90.1,100.1],[null]]
+            code_metadata:
+              pyarrow.Table
+              code: string
+              description: string
+              parent_codes: list<item: string>
+                child 0, item: string
+              ----
+              code: []
+              description: []
+              parent_codes: []
+            subject_splits:
+              pyarrow.Table
+              subject_id: int64
+              split: string
+              ----
+              subject_id: [[239684,1195293,68729,814703,754281],[1500733]]
+              split: [["train","train","train","train","tuning"],["held_out"]]
+        """  # noqa: E501
         if isinstance(yaml, str) and yaml.endswith(".yaml"):
             logger.debug(f"Inferring yaml {yaml} is a file path as it ends with '.yaml'")
             yaml = Path(yaml)
@@ -348,16 +422,16 @@ class MEDSDataset:
                 raise ValueError(f"Expected value for key {key} to be a string, got {type(value)}")
 
             root = key_parts[0]
-            rest = "/".join(key_parts[1:])
 
             if root == "data":
-                data_shards[rest] = cls.parse_data_csv(value)
+                rest = "/".join(key_parts[1:])
+                data_shards[rest.replace(".parquet", "")] = cls.parse_data_csv(value)
             else:
-                if rest == code_metadata_filepath:
+                if key == code_metadata_filepath:
                     code_metadata = cls.parse_code_metadata_csv(value)
-                elif rest == subject_splits_filepath:
+                elif key == subject_splits_filepath:
                     subject_splits = cls.parse_subject_splits_csv(value)
-                elif rest == dataset_metadata_filepath:
+                elif key == dataset_metadata_filepath:
                     dataset_metadata = DatasetMetadata(**json.loads(value))
                 else:
                     raise ValueError(f"Unrecognized key in YAML: {key}")
