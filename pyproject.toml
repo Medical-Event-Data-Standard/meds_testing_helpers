@@ -27,8 +27,8 @@ tests = ["pytest-cov"]
 build_sample_MEDS_dataset = "meds_testing_helpers.__main__:main"
 
 [project.urls]
-Homepage = "https://github.com/Medical-Event-Data-Standard/meds_sample_dataset_builder"
-Issues = "https://github.com/Medical-Event-Data-Standard/meds_sample_dataset_builder/issues"
+Homepage = "https://github.com/Medical-Event-Data-Standard/meds_testing_helpers"
+Issues = "https://github.com/Medical-Event-Data-Standard/meds_testing_helpers/issues"
 
 [tool.pytest.ini_options]
 addopts = [
