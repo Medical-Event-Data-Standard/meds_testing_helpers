@@ -1,6 +1,6 @@
 defaults:
   - _self_
-  - dataset_spec: sample
+  - dataset_spec/default
 
 seed: 1
 output_dir: "sample_dataset"

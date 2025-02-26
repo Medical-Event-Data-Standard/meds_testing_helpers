@@ -14,9 +14,12 @@ import numpy as np
 from omegaconf import DictConfig
 
 
-@hydra.main(config_path=str(CONFIG_YAML.parent), config_name=CONFIG_YAML.stem)
+@hydra.main(version_base=None, config_path=str(CONFIG_YAML.parent), config_name=CONFIG_YAML.stem)
 def main(cfg: DictConfig):
     """Generate a dataset of the specified size."""
+
+    cfg = hydra.utils.instantiate(cfg)
+
     output_dir = Path(cfg.output_dir)
 
     if output_dir.exists():
@@ -25,8 +28,12 @@ def main(cfg: DictConfig):
         if cfg.do_overwrite:
             logger.warning("Output directory already exists. Overwriting.")
             shutil.rmtree(output_dir)
-        else:
-            raise ValueError("Output directory already exists.")
+        elif (output_dir / "data").exists() or (output_dir / "metadata").exists():
+            contents = [f"  - {p.relative_to(output_dir)}" for p in output_dir.rglob("*")]
+            contents_str = "\n".join(contents)
+            raise ValueError(
+                f"Output directory is not empty! use --do-overwrite to overwrite. Contents:\n{contents_str}"
+            )
 
     output_dir.mkdir(parents=True, exist_ok=True)
 

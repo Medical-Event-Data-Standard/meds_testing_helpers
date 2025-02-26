@@ -2,7 +2,7 @@ defaults:
   - _self_
   - data_generator: sample
 
-_target_: sample_dataset_builder.MEDSDatasetGenerator
+_target_: meds_testing_helpers.dataset_generator.MEDSDatasetGenerator
 
 shard_size: null
 train_frac: 0.8
