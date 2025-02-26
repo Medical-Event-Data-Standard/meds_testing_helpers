@@ -24,7 +24,7 @@ dev = ["pre-commit<4"]
 tests = ["pytest-cov"]
 
 [project.scripts]
-build_sample_MEDS_dataset = "meds_testing_helpers.__main__:main"
+build_sample_MEDS_dataset = "meds_testing_helpers.dataset_generator:main"
 
 [project.urls]
 Homepage = "https://github.com/Medical-Event-Data-Standard/meds_testing_helpers"
