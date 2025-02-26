@@ -30,5 +30,12 @@ sample_MEDS_dataset = "meds_sample_dataset_builder.__main__:main"
 Homepage = "https://github.com/Medical-Event-Data-Standard/meds_sample_dataset_builder"
 Issues = "https://github.com/Medical-Event-Data-Standard/meds_sample_dataset_builder/issues"
 
+[tool.pytest.ini_options]
+addopts = [
+  "--color=yes",
+  "--doctest-modules",
+  "--ignore=docs",
+]
+
 [project.entry-points.pytest11]
 meds_sample_dataset_builder = "meds_sample_dataset_builder.pytest_plugin"
