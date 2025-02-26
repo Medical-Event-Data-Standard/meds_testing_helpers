@@ -3,7 +3,7 @@ requires = ["setuptools>=64", "setuptools-scm>=8.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "meds_sample_dataset_builder"
+name = "meds_testing_helpers"
 version = "0.0.1"
 authors = [
   { name="Matthew McDermott", email="mattmcdermott8@gmail.com" },
@@ -24,7 +24,7 @@ dev = ["pre-commit<4"]
 tests = ["pytest-cov"]
 
 [project.scripts]
-sample_MEDS_dataset = "meds_sample_dataset_builder.__main__:main"
+build_sample_MEDS_dataset = "meds_testing_helpers.__main__:main"
 
 [project.urls]
 Homepage = "https://github.com/Medical-Event-Data-Standard/meds_sample_dataset_builder"
@@ -38,4 +38,4 @@ addopts = [
 ]
 
 [project.entry-points.pytest11]
-meds_sample_dataset_builder = "meds_sample_dataset_builder.pytest_plugin"
+meds_testing_helpers = "meds_testing_helpers.pytest_plugin"
