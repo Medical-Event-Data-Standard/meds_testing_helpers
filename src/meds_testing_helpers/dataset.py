@@ -1,20 +1,37 @@
 import json
+import logging
+from io import StringIO
 from pathlib import Path
 from typing import Any
+
+from yaml import load as load_yaml
+
+try:
+    from yaml import CLoader as Loader
+except ImportError:
+    from yaml import Loader
 
 import polars as pl
 import pyarrow as pa
 import pyarrow.parquet as pq
 from meds import (
     DatasetMetadata,
+    code_field,
     code_metadata_filepath,
     code_metadata_schema,
     data_schema,
     data_subdirectory,
     dataset_metadata_filepath,
+    description_field,
+    numeric_value_field,
+    parent_codes_field,
+    subject_id_field,
     subject_split_schema,
     subject_splits_filepath,
+    time_field,
 )
+
+logger = logging.getLogger(__name__)
 
 
 class MEDSDataset:
@@ -180,6 +197,26 @@ class MEDSDataset:
         subject_splits: None
     """
 
+    DEFAULT_CSV_TS_FORMAT = "%m/%d/%Y, %H:%M:%S"
+
+    PL_DATA_SCHEMA = {
+        subject_id_field: pl.Int64,
+        time_field: pl.Datetime("us"),
+        code_field: pl.String,
+        numeric_value_field: pl.Float32,
+    }
+
+    PL_CODE_METADATA_SCHEMA = {
+        code_field: pl.String,
+        description_field: pl.String,
+        parent_codes_field: pl.List(pl.String),
+    }
+
+    PL_SUBJECT_SPLIT_SCHEMA = {
+        subject_id_field: pl.Int64,
+        "split": pl.String,
+    }
+
     def __init__(
         self,
         root_dir: Path | None = None,
@@ -207,6 +244,139 @@ class MEDSDataset:
         self.code_metadata
         self.subject_splits
         self.dataset_metadata
+
+    @classmethod
+    def _parse_csv(cls, csv: str, **schema) -> pl.DataFrame:
+        if not isinstance(csv, str):
+            raise ValueError(f"csv must be a string; got {type(csv)}")
+
+        read_schema = {**schema}
+
+        time_schema = {}
+        for time_col in ["time", "prediction_time"]:
+            if time_col in read_schema:
+                time_schema[time_col] = read_schema.pop(time_col)
+                read_schema[time_col] = pl.String
+
+        df = pl.read_csv(StringIO(csv), schema=read_schema)
+        cols = df.columns
+        for time_col, schema in time_schema.items():
+            df = df.with_column(time_col, df[time_col].str.strptime(schema, cls.DEFAULT_CSV_TS_FORMAT))
+        return df.select(cols)
+
+    @classmethod
+    def parse_data_csv(cls, csv: str, **schema_updates) -> pl.DataFrame:
+        """Converts a string or dict of named strings to a MEDS DataFrame by interpreting them as CSVs."""
+
+        return cls._parse_csv(csv, **cls.PL_DATA_SCHEMA, **schema_updates)
+
+    @classmethod
+    def parse_code_metadata_csv(cls, csv: str) -> pl.DataFrame:
+        """Converts a string to a code metadata DataFrame by interpreting it as a CSV."""
+
+        read_schema = {**cls.PL_CODE_METADATA_SCHEMA}
+
+        if "parent_codes" in read_schema:
+            parent_codes_real = read_schema.pop("parent_codes")
+            read_schema["parent_codes"] = pl.String
+
+        df = cls._parse_csv(csv, **read_schema)
+
+        if "parent_codes" in df.columns:
+            cols = df.columns
+            df = df.with_column(
+                "parent_codes", df["parent_codes"].str.split(", ").cast(parent_codes_real)
+            ).select(cols)
+
+        return df
+
+    @classmethod
+    def parse_subject_splits_csv(cls, csv: str) -> pl.DataFrame:
+        """Converts a string to a subject splits DataFrame by interpreting it as a CSV."""
+
+        return cls._parse_csv(csv, **cls.PL_SUBJECT_SPLIT_SCHEMA)
+
+    @classmethod
+    def from_yaml(cls, yaml: str | Path) -> "MEDSDataset":
+        """Create a MEDSDataset from a YAML string or file on disk.
+
+        Args:
+            yaml: The YAML string or file path to load the dataset from. This file should contain a flat set
+                of string keys that correspond to file-paths relative to the MEDS-Root, with values that are
+                strings of the associated data in CSV format (JSON format for dataset metadata). Missing keys
+                corresponding to mandatory files will be inferred if possible or raise an error if not.
+
+        Raises:
+            ValueError: If the YAML is not a valid MEDSDataset.
+            FileNotFoundError: If the file path does not exist.
+
+        Returns:
+            The MEDSDataset object reflected in the YAML file. If no code metadata is specified, an empty code
+            metadata dataframe will be created. If no subject splits are specified, `None` will be returned.
+            If no dataset metadata is specified, a default dataset metadata object will be created.
+
+        Examples:
+            >>> from meds_testing_helpers.static_sample_data import SIMPLE_STATIC_SHARDED_BY_SPLIT
+            >>> D = MEDSDataset.from_yaml(SIMPLE_STATIC_SHARDED_BY_SPLIT)
+            >>> D
+        """
+        if isinstance(yaml, str) and yaml.endswith(".yaml"):
+            logger.debug(f"Inferring yaml {yaml} is a file path as it ends with '.yaml'")
+            yaml = Path(yaml)
+
+        match yaml:
+            case Path() if yaml.is_file():
+                yaml = yaml.read_text().strip()
+            case Path():
+                raise FileNotFoundError(f"File not found: {yaml}")
+            case str():
+                yaml = yaml.strip()
+            case _:
+                raise ValueError(f"yaml must be a string or a file path; got {type(yaml)}")
+
+        data = load_yaml(yaml, Loader=Loader)
+
+        data_shards = {}
+        code_metadata = None
+        subject_splits = None
+        dataset_metadata = DatasetMetadata()
+        for key, value in data.items():
+            key_parts = key.split("/")
+            if len(key_parts) < 2 or key_parts[0] not in {"data", "metadata"}:
+                raise ValueError(f"Unrecognized key in YAML: {key}. Must start with 'data/' or 'metadata/'.")
+            if not isinstance(value, str):
+                raise ValueError(f"Expected value for key {key} to be a string, got {type(value)}")
+
+            root = key_parts[0]
+            rest = "/".join(key_parts[1:])
+
+            if root == "data":
+                data_shards[rest] = cls.parse_data_csv(value)
+            else:
+                if rest == code_metadata_filepath:
+                    code_metadata = cls.parse_code_metadata_csv(value)
+                elif rest == subject_splits_filepath:
+                    subject_splits = cls.parse_subject_splits_csv(value)
+                elif rest == dataset_metadata_filepath:
+                    dataset_metadata = DatasetMetadata(**json.loads(value))
+                else:
+                    raise ValueError(f"Unrecognized key in YAML: {key}")
+
+        if len(data_shards) == 0:
+            raise ValueError("No data shards found in YAML")
+
+        if code_metadata is None:
+            code_metadata = pl.DataFrame(
+                {code_field: [], description_field: [], parent_codes_field: []},
+                schema=cls.PL_CODE_METADATA_SCHEMA,
+            )
+
+        return cls(
+            data_shards=data_shards,
+            dataset_metadata=dataset_metadata,
+            code_metadata=code_metadata,
+            subject_splits=subject_splits,
+        )
 
     @staticmethod
     def _align_df(df: pl.DataFrame, schema: pa.Schema) -> pa.Table:
