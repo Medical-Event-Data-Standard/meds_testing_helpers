@@ -1,89 +1,26 @@
-import json
 from dataclasses import dataclass
 from datetime import datetime
-from pathlib import Path
 from typing import Annotated, Any
 
 import numpy as np
 import polars as pl
-import pyarrow as pa
-import pyarrow.parquet as pq
 from annotated_types import Ge, Gt
 from meds import DatasetMetadata
 from meds import __version__ as meds_version
 from meds import (
     code_field,
-    code_metadata_filepath,
-    code_metadata_schema,
-    data_schema,
-    data_subdirectory,
-    dataset_metadata_filepath,
     description_field,
     held_out_split,
     numeric_value_field,
     parent_codes_field,
     subject_id_field,
-    subject_split_schema,
-    subject_splits_filepath,
     time_field,
     train_split,
     tuning_split,
 )
 
 from . import __package_name__, __version__
-
-
-@dataclass
-class MEDSDataset:
-    data_shards: dict[str, pl.DataFrame]
-    dataset_metadata: DatasetMetadata
-    code_metadata: pl.DataFrame
-    subject_splits: pl.DataFrame | None = None
-
-    @staticmethod
-    def _align_df(df: pl.DataFrame, schema: pa.Schema) -> pa.Table:
-        return df.select(schema.names).to_arrow().cast(schema)
-
-    @property
-    def validated_shards(self) -> dict[str, pa.Table]:
-        return {shard: self._align_df(df, data_schema()) for shard, df in self.data_shards.items()}
-
-    @property
-    def validated_code_metadata(self) -> pa.Table:
-        return self._align_df(self.code_metadata, code_metadata_schema())
-
-    @property
-    def validated_subject_splits(self) -> pa.Table | None:
-        if self.subject_splits is None:
-            return None
-        return self._align_df(self.subject_splits, subject_split_schema)
-
-    def __post_init__(self):
-        # These will raise exceptions if the data is not valid.
-        self.validated_shards
-        self.validated_code_metadata
-        self.validated_subject_splits
-
-    def write(self, output_dir: Path):
-        data_dir = output_dir / data_subdirectory
-        data_dir.mkdir(parents=True, exist_ok=True)
-
-        for shard, table in self.validated_shards.items():
-            pq.write_table(table, data_dir / f"{shard}.parquet")
-
-        code_metadata_fp = output_dir / code_metadata_filepath
-        code_metadata_fp.parent.mkdir(parents=True, exist_ok=True)
-        pq.write_table(self.validated_code_metadata, code_metadata_fp)
-
-        dataset_metadata_fp = output_dir / dataset_metadata_filepath
-        dataset_metadata_fp.parent.mkdir(parents=True, exist_ok=True)
-        dataset_metadata_fp.write_text(json.dumps(self.dataset_metadata))
-
-        if self.subject_splits is not None:
-            subject_splits_fp = output_dir / subject_splits_filepath
-            subject_splits_fp.parent.mkdir(parents=True, exist_ok=True)
-            pq.write_table(self.validated_subject_splits, subject_splits_fp)
-
+from .dataset import MEDSDataset
 
 NUM = int | float
 POSITIVE_INT = Annotated[int, Ge(0)]
@@ -463,11 +400,11 @@ class MEDSDatasetGenerator:
         >>> for k, v in dataset.dataset_metadata.items(): print(f"{k}: {v}")
         dataset_name: MEDS_Sample
         dataset_version: 0.0.1
-        etl_name: meds_sample_dataset_builder
+        etl_name: meds_testing_helpers
         etl_version: 0.0.1
         meds_version: 0.3.3
         ...
-        >>> dataset.code_metadata # This is always empty for now as these codes are meaningless.
+        >>> dataset._pl_code_metadata # This is always empty for now as these codes are meaningless.
         shape: (0, 3)
         ┌──────┬─────────────┬──────────────┐
         │ code ┆ description ┆ parent_codes │
@@ -475,7 +412,7 @@ class MEDSDatasetGenerator:
         │ str  ┆ str         ┆ list[str]    │
         ╞══════╪═════════════╪══════════════╡
         └──────┴─────────────┴──────────────┘
-        >>> dataset.subject_splits
+        >>> dataset._pl_subject_splits
         shape: (10, 2)
         ┌────────────┬──────────┐
         │ subject_id ┆ split    │
@@ -495,7 +432,7 @@ class MEDSDatasetGenerator:
         └────────────┴──────────┘
         >>> len(dataset.data_shards)
         3
-        >>> dataset.data_shards["0"]
+        >>> dataset._pl_shards["0"]
         shape: (19, 4)
         ┌────────────┬─────────┬─────────────────────┬───────────────┐
         │ subject_id ┆ code    ┆ time                ┆ numeric_value │
@@ -514,7 +451,7 @@ class MEDSDatasetGenerator:
         │ 2          ┆ code_11 ┆ 2022-02-02 00:00:05 ┆ -0.345216     │
         │ 2          ┆ code_13 ┆ 2022-02-02 00:00:05 ┆ -1.481818     │
         └────────────┴─────────┴─────────────────────┴───────────────┘
-        >>> dataset.data_shards["1"]
+        >>> dataset._pl_shards["1"]
         shape: (15, 4)
         ┌────────────┬─────────┬─────────────────────┬───────────────┐
         │ subject_id ┆ code    ┆ time                ┆ numeric_value │
@@ -533,7 +470,7 @@ class MEDSDatasetGenerator:
         │ 5          ┆ code_9  ┆ 2023-03-03 00:00:01 ┆ NaN           │
         │ 5          ┆ code_18 ┆ 2023-03-03 00:00:01 ┆ NaN           │
         └────────────┴─────────┴─────────────────────┴───────────────┘
-        >>> dataset.data_shards["2"]
+        >>> dataset._pl_shards["2"]
         shape: (26, 4)
         ┌────────────┬─────────┬─────────────────────┬───────────────┐
         │ subject_id ┆ code    ┆ time                ┆ numeric_value │
