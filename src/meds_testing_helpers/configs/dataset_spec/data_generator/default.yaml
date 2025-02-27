@@ -1,7 +1,7 @@
 _target_: meds_testing_helpers.dataset_generator.MEDSDataDFGenerator
 
 static_vocab_size: 16
-vocab_size: ???
+dynamic_vocab_size: ???
 birth_codes: ["MEDS_BIRTH"]
 death_codes: ["MEDS_DEATH"]
 frac_subjects_with_birth: 1.0

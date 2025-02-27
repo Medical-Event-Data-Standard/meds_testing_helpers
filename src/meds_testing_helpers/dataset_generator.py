@@ -1,5 +1,6 @@
 #!/usr/bin/env python
 
+import dataclasses
 import logging
 import shutil
 from dataclasses import dataclass
@@ -35,9 +36,10 @@ logger = logging.getLogger(__name__)
 
 
 NUM = int | float
-POSITIVE_INT = Annotated[int, Ge(0)]
-NON_NEGATIVE_NUM = Annotated[NUM, Gt(-1)]
 POSITIVE_NUM = Annotated[NUM, Gt(0)]
+POSITIVE_INT = Annotated[int, Gt(0)]
+NON_NEGATIVE_NUM = Annotated[NUM, Ge(0)]
+NON_NEGATIVE_INT = Annotated[int, Ge(0)]
 PROPORTION = Annotated[NUM, Ge(0), Le(1)]
 POSITIVE_TIMEDELTA = Annotated[np.timedelta64, Gt(0)]
 
@@ -102,6 +104,22 @@ def is_NON_NEGATIVE_NUM(x: Any) -> bool:
     return is_NUM(x) and x >= 0
 
 
+def is_NON_NEGATIVE_INT(x: Any) -> bool:
+    """Check if x is a non-negative integer.
+
+    Examples:
+        >>> is_NON_NEGATIVE_INT(1)
+        True
+        >>> is_NON_NEGATIVE_INT(0)
+        True
+        >>> is_NON_NEGATIVE_INT(-1)
+        False
+        >>> is_NON_NEGATIVE_INT(1.0)
+        False
+    """
+    return isinstance(x, int) and x >= 0
+
+
 def is_PROPORTION(x: Any) -> bool:
     """Check if x is a proportion (between 0 and 1 inclusive).
 
@@ -138,8 +156,17 @@ def is_POSITIVE_TIMEDELTA(x: Any) -> bool:
     return bool(isinstance(x, np.timedelta64) and (x > 0))
 
 
+class Configurable:
+    def to_dict(self):
+        base = dataclasses.asdict(self)
+        for k in base.keys():
+            if isinstance(getattr(self, k), Configurable):
+                base[k] = getattr(self, k).to_dict()
+        return base
+
+
 @dataclass
-class DiscreteGenerator:
+class DiscreteGenerator(Configurable):
     """A class to generate random numbers from a list of options with given frequencies.
 
     This is largely just for type safety and to ease specification of the various things that need to be
@@ -234,9 +261,20 @@ class DatetimeGenerator(DiscreteGenerator):
     X: list[np.datetime64]
 
     def __post_init__(self):
+        if all(isinstance(x, str) for x in self.X):
+            try:
+                self.X = [np.datetime64(x) for x in self.X]
+            except ValueError:
+                raise ValueError("All elements should be datetimes.")
+
         if not all(isinstance(x, np.datetime64) for x in self.X):
             raise ValueError("All elements should be datetimes.")
         super().__post_init__()
+
+    def to_dict(self):
+        base = super().to_dict()
+        base["X"] = [str(x) for x in base["X"]]
+        return base
 
 
 class PositiveTimeDeltaGenerator(DiscreteGenerator):
@@ -268,9 +306,20 @@ class PositiveTimeDeltaGenerator(DiscreteGenerator):
     X: list[POSITIVE_TIMEDELTA]
 
     def __post_init__(self):
+        if all(isinstance(x, str) for x in self.X):
+            try:
+                self.X = [np.timedelta64(x) for x in self.X]
+            except ValueError:
+                raise ValueError("All elements should be positive timedeltas.")
+
         if not all(is_POSITIVE_TIMEDELTA(x) for x in self.X):
             raise ValueError("All elements should be positive timedeltas.")
         super().__post_init__()
+
+    def to_dict(self):
+        base = super().to_dict()
+        base["X"] = [str(x) for x in base["X"]]
+        return base
 
 
 class ProportionGenerator(DiscreteGenerator):
@@ -377,7 +426,7 @@ class PositiveIntGenerator(PositiveNumGenerator):
 
 
 @dataclass
-class MEDSDataDFGenerator:
+class MEDSDataDFGenerator(Configurable):
     """A class to generate whole dataset objects in the form of static and dynamic measurements.
 
     Attributes:
@@ -450,18 +499,18 @@ class MEDSDataDFGenerator:
         │ 0          ┆ dynamic//9  ┆ 2032-02-02 06:36:00        ┆ null          │
         │ 0          ┆ dynamic//9  ┆ 2032-02-02 06:36:00        ┆ null          │
         │ …          ┆ …           ┆ …                          ┆ …             │
-        │ 2          ┆ dynamic//12 ┆ 2031-01-01 06:36:00        ┆ null          │
-        │ 2          ┆ dynamic//3  ┆ 2031-01-01 06:40:26.352433 ┆ -1.524686     │
-        │ 2          ┆ dynamic//9  ┆ 2031-01-01 06:46:20.142282 ┆ null          │
-        │ 2          ┆ dynamic//9  ┆ 2031-01-01 06:46:20.142282 ┆ null          │
-        │ 2          ┆ dynamic//5  ┆ 2031-01-01 06:46:20.142282 ┆ null          │
+        │ 2          ┆ dynamic//12 ┆ 2022-02-01 20:24:00        ┆ null          │
+        │ 2          ┆ dynamic//3  ┆ 2022-02-01 20:28:26.352433 ┆ -1.524686     │
+        │ 2          ┆ dynamic//9  ┆ 2022-02-01 20:34:20.142282 ┆ null          │
+        │ 2          ┆ dynamic//9  ┆ 2022-02-01 20:34:20.142282 ┆ null          │
+        │ 2          ┆ dynamic//5  ┆ 2022-02-01 20:34:20.142282 ┆ null          │
         └────────────┴─────────────┴────────────────────────────┴───────────────┘
     """
 
-    birth_datetime_per_subject: DatetimeGenerator
+    birth_datetime_per_subject: DatetimeGenerator | None
     start_data_datetime_per_subject: DatetimeGenerator
-    time_between_birth_and_data_per_subject: PositiveTimeDeltaGenerator
-    time_between_data_and_death_per_subject: PositiveTimeDeltaGenerator
+    time_between_birth_and_data_per_subject: PositiveTimeDeltaGenerator | None
+    time_between_data_and_death_per_subject: PositiveTimeDeltaGenerator | None
     time_between_data_events_per_subject: PositiveTimeDeltaGenerator
 
     num_events_per_subject: PositiveIntGenerator
@@ -474,8 +523,8 @@ class MEDSDataDFGenerator:
     dynamic_vocab_size: POSITIVE_INT
     frac_subjects_with_death: PROPORTION
     frac_subjects_with_birth: PROPORTION = 1
-    birth_codes_vocab_size: POSITIVE_INT = 1
-    death_codes_vocab_size: POSITIVE_INT = 1
+    birth_codes_vocab_size: NON_NEGATIVE_INT = 1
+    death_codes_vocab_size: NON_NEGATIVE_INT = 1
 
     def __post_init__(self):
         if not is_POSITIVE_INT(self.dynamic_vocab_size):
@@ -486,10 +535,24 @@ class MEDSDataDFGenerator:
             raise ValueError("frac_subjects_with_death must be a proportion.")
         if not is_PROPORTION(self.frac_subjects_with_birth):
             raise ValueError("frac_subjects_with_birth must be a proportion.")
-        if not is_POSITIVE_INT(self.birth_codes_vocab_size):
-            raise ValueError("birth_codes_vocab_size must be a positive integer.")
-        if not is_POSITIVE_INT(self.death_codes_vocab_size):
-            raise ValueError("death_codes_vocab_size must be a positive integer.")
+        if not is_NON_NEGATIVE_INT(self.birth_codes_vocab_size):
+            raise ValueError("birth_codes_vocab_size must be a non-negative integer.")
+        if not is_NON_NEGATIVE_INT(self.death_codes_vocab_size):
+            raise ValueError("death_codes_vocab_size must be a non-negative integer.")
+
+        if not self.has_births:
+            if self.frac_subjects_with_birth != 0:
+                raise ValueError("If birth_datetime_per_subject is None, frac_subjects_with_birth must be 0.")
+        elif self.birth_codes_vocab_size == 0:
+            raise ValueError("If there are births, there must be at least one birth code")
+
+        if not self.has_deaths:
+            if self.frac_subjects_with_death != 0:
+                raise ValueError(
+                    "If time_between_data_and_death_per_subject is None, frac_subjects_with_death must be 0."
+                )
+        elif self.death_codes_vocab_size == 0:
+            raise ValueError("If there are deaths, there must be at least one death code")
 
     @property
     def birth_codes(self):
@@ -504,16 +567,27 @@ class MEDSDataDFGenerator:
         return [f"death_code//{i}" for i in range(self.death_codes_vocab_size)]
 
     @property
+    def has_births(self) -> bool:
+        return self.birth_datetime_per_subject is not None
+
+    @property
+    def has_deaths(self) -> bool:
+        return self.time_between_data_and_death_per_subject is not None
+
+    @property
     def _subject_specific_gens(self) -> list[DiscreteGenerator]:
-        return [
+        out = [
             ("num_static_measurements", self.num_static_measurements_per_subject),
             ("num_events", self.num_events_per_subject),
-            ("birth_datetime", self.birth_datetime_per_subject),
             ("start_data_datetime", self.start_data_datetime_per_subject),
             ("time_between_birth_and_data", self.time_between_birth_and_data_per_subject),
             ("time_between_data_events", self.time_between_data_events_per_subject),
-            ("time_between_data_and_death", self.time_between_data_and_death_per_subject),
         ]
+        if self.has_births:
+            out.append(("birth_datetime", self.birth_datetime_per_subject))
+        if self.has_deaths:
+            out.append(("time_between_data_and_death", self.time_between_data_and_death_per_subject))
+        return out
 
     def _sample_code_val(
         self, size: int, vocab_size: int, value_props: np.ndarray, rng: np.random.Generator
@@ -631,7 +705,7 @@ class MEDSDataDFGenerator:
 
 
 @dataclass
-class MEDSDatasetGenerator:
+class MEDSDatasetGenerator(Configurable):
     """A class to generate whole MEDS datasets, including core data and metadata.
 
     Note that these datasets are _not_ meaningful datasets, but rather are just random data for use in testing
@@ -726,11 +800,11 @@ class MEDSDatasetGenerator:
         │ 0          ┆ dynamic//9  ┆ 2032-02-02 06:36:00        ┆ null          │
         │ 0          ┆ dynamic//9  ┆ 2032-02-02 06:36:00        ┆ null          │
         │ …          ┆ …           ┆ …                          ┆ …             │
-        │ 2          ┆ dynamic//12 ┆ 2031-01-01 06:36:00        ┆ null          │
-        │ 2          ┆ dynamic//3  ┆ 2031-01-01 06:40:26.352433 ┆ -1.524686     │
-        │ 2          ┆ dynamic//9  ┆ 2031-01-01 06:46:20.142282 ┆ null          │
-        │ 2          ┆ dynamic//9  ┆ 2031-01-01 06:46:20.142282 ┆ null          │
-        │ 2          ┆ dynamic//5  ┆ 2031-01-01 06:46:20.142282 ┆ null          │
+        │ 2          ┆ dynamic//12 ┆ 2022-02-01 20:24:00        ┆ null          │
+        │ 2          ┆ dynamic//3  ┆ 2022-02-01 20:28:26.352433 ┆ -1.524686     │
+        │ 2          ┆ dynamic//9  ┆ 2022-02-01 20:34:20.142282 ┆ null          │
+        │ 2          ┆ dynamic//9  ┆ 2022-02-01 20:34:20.142282 ┆ null          │
+        │ 2          ┆ dynamic//5  ┆ 2022-02-01 20:34:20.142282 ┆ null          │
         └────────────┴─────────────┴────────────────────────────┴───────────────┘
         >>> dataset._pl_shards["1"]
         shape: (22, 4)
@@ -745,11 +819,11 @@ class MEDSDatasetGenerator:
         │ 3          ┆ dynamic//10 ┆ 2031-01-01 06:36:00        ┆ null          │
         │ 3          ┆ dynamic//12 ┆ 2031-01-01 06:36:00        ┆ null          │
         │ …          ┆ …           ┆ …                          ┆ …             │
-        │ 5          ┆ dynamic//15 ┆ 2031-01-01 06:36:00        ┆ -0.526515     │
-        │ 5          ┆ dynamic//4  ┆ 2031-01-01 06:36:00        ┆ -1.264493     │
-        │ 5          ┆ dynamic//10 ┆ 2031-01-01 06:37:04.199317 ┆ null          │
-        │ 5          ┆ dynamic//8  ┆ 2031-01-01 06:41:31.716960 ┆ -2.019266     │
-        │ 5          ┆ dynamic//4  ┆ 2031-01-01 06:41:31.716960 ┆ 0.420513      │
+        │ 5          ┆ dynamic//15 ┆ 2032-02-02 06:36:00        ┆ -0.526515     │
+        │ 5          ┆ dynamic//4  ┆ 2032-02-02 06:36:00        ┆ -1.264493     │
+        │ 5          ┆ dynamic//10 ┆ 2032-02-02 06:37:04.199317 ┆ null          │
+        │ 5          ┆ dynamic//8  ┆ 2032-02-02 06:41:31.716960 ┆ -2.019266     │
+        │ 5          ┆ dynamic//4  ┆ 2032-02-02 06:41:31.716960 ┆ 0.420513      │
         └────────────┴─────────────┴────────────────────────────┴───────────────┘
         >>> dataset._pl_shards["2"]
         shape: (24, 4)
@@ -760,51 +834,60 @@ class MEDSDatasetGenerator:
         ╞════════════╪════════════╪═════════════════════╪═══════════════╡
         │ 6          ┆ static//3  ┆ null                ┆ null          │
         │ 6          ┆ static//0  ┆ null                ┆ null          │
-        │ 6          ┆ MEDS_BIRTH ┆ 2002-02-02 00:00:00 ┆ null          │
-        │ 6          ┆ dynamic//5 ┆ 2022-02-01 20:24:00 ┆ null          │
-        │ 6          ┆ dynamic//1 ┆ 2022-02-01 20:24:00 ┆ null          │
+        │ 6          ┆ MEDS_BIRTH ┆ 2001-01-01 00:00:00 ┆ null          │
+        │ 6          ┆ dynamic//5 ┆ 2020-12-31 20:24:00 ┆ null          │
+        │ 6          ┆ dynamic//1 ┆ 2020-12-31 20:24:00 ┆ null          │
         │ …          ┆ …          ┆ …                   ┆ …             │
         │ 8          ┆ dynamic//3 ┆ 2031-01-01 06:36:00 ┆ null          │
         │ 9          ┆ static//3  ┆ null                ┆ null          │
         │ 9          ┆ static//0  ┆ null                ┆ null          │
-        │ 9          ┆ MEDS_BIRTH ┆ 2001-01-01 00:00:00 ┆ null          │
-        │ 9          ┆ dynamic//7 ┆ 2020-12-31 20:24:00 ┆ null          │
+        │ 9          ┆ MEDS_BIRTH ┆ 2002-02-02 00:00:00 ┆ null          │
+        │ 9          ┆ dynamic//7 ┆ 2022-02-01 20:24:00 ┆ null          │
         └────────────┴────────────┴─────────────────────┴───────────────┘
     """
 
     data_generator: MEDSDataDFGenerator
     shard_size: POSITIVE_INT | None = None
-    train_frac: float = 0.8
+    train_frac: float | None = 0.8
     tuning_frac: float | None = None
     held_out_frac: float | None = None
     dataset_name: str | None = None
 
+    @property
+    def has_splits(self) -> bool:
+        return self.train_frac is not None
+
     def __post_init__(self):
         if self.shard_size is not None and self.shard_size <= 0:
             raise ValueError(f"shard_size must be positive; got {self.shard_size}")
-        if self.train_frac < 0 or self.train_frac > 1:
-            raise ValueError(f"train_frac must be between 0 and 1; got {self.train_frac}")
 
-        if self.tuning_frac is None and self.held_out_frac is None:
-            leftover = 1 - self.train_frac
-            self.tuning_frac = round(leftover / 2, 4)
-            self.held_out_frac = round(leftover / 2, 4)
-        elif self.tuning_frac is None:
-            self.tuning_frac = 1 - self.train_frac - self.held_out_frac
-        elif self.held_out_frac is None:
-            self.held_out_frac = 1 - self.train_frac - self.tuning_frac
+        if not self.has_splits:
+            if self.tuning_frac is not None or self.held_out_frac is not None:
+                raise ValueError("If train_frac is None, tuning_frac and held_out_frac must be None.")
+        else:
+            if self.train_frac < 0 or self.train_frac > 1:
+                raise ValueError(f"train_frac must be between 0 and 1; got {self.train_frac}")
 
-        if self.tuning_frac < 0 or self.tuning_frac > 1:
-            raise ValueError(f"tuning_frac must be between 0 and 1; got {self.tuning_frac}")
-        if self.held_out_frac < 0 or self.held_out_frac > 1:
-            raise ValueError(f"held_out_frac must be between 0 and 1; got {self.held_out_frac}")
+            if self.tuning_frac is None and self.held_out_frac is None:
+                leftover = 1 - self.train_frac
+                self.tuning_frac = round(leftover / 2, 4)
+                self.held_out_frac = round(leftover / 2, 4)
+            elif self.tuning_frac is None:
+                self.tuning_frac = 1 - self.train_frac - self.held_out_frac
+            elif self.held_out_frac is None:
+                self.held_out_frac = 1 - self.train_frac - self.tuning_frac
 
-        if self.train_frac + self.tuning_frac + self.held_out_frac != 1:
-            raise ValueError(
-                "The sum of train_frac, tuning_frac, and held_out_frac must be 1. Got "
-                f"{self.train_frac} + {self.tuning_frac} + {self.held_out_frac} = "
-                f"{self.train_frac + self.tuning_frac + self.held_out_frac}."
-            )
+            if self.tuning_frac < 0 or self.tuning_frac > 1:
+                raise ValueError(f"tuning_frac must be between 0 and 1; got {self.tuning_frac}")
+            if self.held_out_frac < 0 or self.held_out_frac > 1:
+                raise ValueError(f"held_out_frac must be between 0 and 1; got {self.held_out_frac}")
+
+            if self.train_frac + self.tuning_frac + self.held_out_frac != 1:
+                raise ValueError(
+                    "The sum of train_frac, tuning_frac, and held_out_frac must be 1. Got "
+                    f"{self.train_frac} + {self.tuning_frac} + {self.held_out_frac} = "
+                    f"{self.train_frac + self.tuning_frac + self.held_out_frac}."
+                )
 
         if self.dataset_name is None:
             self.dataset_name = f"MEDS_Sample_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
@@ -842,19 +925,22 @@ class MEDSDatasetGenerator:
             }
         )
 
-        subjects = list(range(N_subjects))
-        rng.shuffle(subjects)
-        N_train = int(N_subjects * self.train_frac)
-        N_tuning = int(N_subjects * self.tuning_frac)
-        N_held_out = N_subjects - N_train - N_tuning
+        if self.has_splits:
+            subjects = list(range(N_subjects))
+            rng.shuffle(subjects)
+            N_train = int(N_subjects * self.train_frac)
+            N_tuning = int(N_subjects * self.tuning_frac)
+            N_held_out = N_subjects - N_train - N_tuning
 
-        split = [train_split] * N_train + [tuning_split] * N_tuning + [held_out_split] * N_held_out
-        subject_splits = pl.DataFrame(
-            {
-                subject_id_field: pl.Series(subjects, dtype=pl.Int64),
-                "split": pl.Series(split, dtype=pl.Utf8),
-            }
-        )
+            split = [train_split] * N_train + [tuning_split] * N_tuning + [held_out_split] * N_held_out
+            subject_splits = pl.DataFrame(
+                {
+                    subject_id_field: pl.Series(subjects, dtype=pl.Int64),
+                    "split": pl.Series(split, dtype=pl.Utf8),
+                }
+            )
+        else:
+            subject_splits = None
 
         return MEDSDataset(
             data_shards=data_shards,

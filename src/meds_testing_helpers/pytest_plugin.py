@@ -12,7 +12,10 @@ from .static_sample_data import SIMPLE_STATIC_SHARDED_BY_SPLIT
 
 def pytest_addoption(parser):
     parser.addoption(
-        "--mimic-like-N", type=int, help="If using the mimic-like dataset, how many patients?", default=500
+        "--generated-dataset-N",
+        type=int,
+        help="If using the generated-dataset dataset, how many patients?",
+        default=500,
     )
 
     parser.addoption(
@@ -32,9 +35,8 @@ def simple_static_MEDS() -> Path:
         yield data_dir
 
 
-@pytest.fixture
-def generated_mimic_like_MEDS(request) -> Path:
-    N = request.config.getoption("--mimic-like-N")
+def generate_MEDS(request, dataset_spec: str) -> Path:
+    N = request.config.getoption("--generated-dataset-N")
     seed = request.config.getoption("--generated-dataset-seed")
     with tempfile.TemporaryDirectory() as data_dir:
         data_dir = Path(data_dir)
@@ -45,7 +47,7 @@ def generated_mimic_like_MEDS(request) -> Path:
             f"N_subjects={N}",
             "do_overwrite=False",
             f"output_dir={str(data_dir)}",
-            "dataset_spec/data_generator=mimic",
+            "dataset_spec/data_generator=sample",
         ]
 
         out = subprocess.run(cmd_args, shell=False, check=False, capture_output=True)
@@ -60,3 +62,13 @@ def generated_mimic_like_MEDS(request) -> Path:
             raise RuntimeError(error_str)
 
         yield data_dir
+
+
+@pytest.fixture
+def generated_sample_MEDS(request) -> Path:
+    yield from generate_MEDS(request, "sample")
+
+
+@pytest.fixture
+def generated_mimic_like_MEDS(request) -> Path:
+    yield from generate_MEDS(request, "mimic_like")

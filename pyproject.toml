@@ -25,6 +25,7 @@ tests = ["pytest-cov"]
 
 [project.scripts]
 build_sample_MEDS_dataset = "meds_testing_helpers.dataset_generator:main"
+infer_MEDS_sample_gen_config = "meds_testing_helpers.infer_dataset_config:main"
 
 [project.urls]
 Homepage = "https://github.com/Medical-Event-Data-Standard/meds_testing_helpers"

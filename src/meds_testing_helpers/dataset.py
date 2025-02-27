@@ -532,10 +532,11 @@ class MEDSDataset:
 
     def write(self, output_dir: Path) -> "MEDSDataset":
         data_dir = output_dir / data_subdirectory
-        data_dir.mkdir(parents=True, exist_ok=True)
 
         for shard, table in self.data_shards.items():
-            pq.write_table(table, data_dir / f"{shard}.parquet")
+            fp = data_dir / f"{shard}.parquet"
+            fp.parent.mkdir(parents=True, exist_ok=True)
+            pq.write_table(table, fp)
 
         code_metadata_fp = output_dir / code_metadata_filepath
         code_metadata_fp.parent.mkdir(parents=True, exist_ok=True)

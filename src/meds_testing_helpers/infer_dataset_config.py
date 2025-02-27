@@ -1,6 +1,5 @@
 #!/usr/bin/env python
 
-import dataclasses
 import json
 import logging
 from pathlib import Path
@@ -8,7 +7,6 @@ from pathlib import Path
 import hydra
 import numpy as np
 import polars as pl
-import polars.selectors as cs
 from meds import (
     birth_code,
     code_field,
@@ -21,13 +19,12 @@ from meds import (
     train_split,
     tuning_split,
 )
-from omegaconf import DictConfig
-from yaml import dump as dump_yaml
+from omegaconf import DictConfig, OmegaConf
 
 try:
-    from yaml import CDumper as Dumper
+    pass
 except ImportError:
-    from yaml import Dumper
+    pass
 
 from . import INF_YAML
 from .dataset_generator import (
@@ -40,6 +37,25 @@ from .dataset_generator import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+def to_dt_list(df: pl.DataFrame, col: str) -> list[str]:
+    """Converts a Polars DataFrame column to a list of ISO format strings.
+
+    Args:
+        df: The DataFrame.
+        col: The column name.
+
+    Returns:
+        A list of ISO format strings.
+
+    Examples:
+        >>> from datetime import datetime
+        >>> df = pl.DataFrame({"col": [datetime(2021, 1, 1), datetime(2021, 1, 2)]})
+        >>> to_dt_list(df, "col")
+        ['2021-01-01T00:00:00', '2021-01-02T00:00:00']
+    """
+    return df.select(pl.col(col).drop_nulls().dt.strftime("%Y-%m-%dT%H:%M:%S%.f"))[col].to_list()
 
 
 @hydra.main(version_base=None, config_path=str(INF_YAML.parent), config_name=INF_YAML.stem)
@@ -90,7 +106,8 @@ def main(cfg: DictConfig):
     else:
         rng = np.random.default_rng()
 
-    shards_to_examine = rng.shuffle(shards)[:3]
+    rng.shuffle(shards)
+    shards_to_examine = shards[:3]
 
     code_col = pl.col(code_field)
     time_col = pl.col(time_field)
@@ -105,140 +122,92 @@ def main(cfg: DictConfig):
         & pl.col("numeric_value").is_not_nan()
     )
 
-    static_codes = set()
-    dynamic_codes = set()
-    birth_codes = set()
-    death_codes = set()
-    birth_times = []
-    death_times = []
-    start_of_data_times = np.array([])
-    num_events_per_subject = np.array([])
-    num_measurements_per_event = np.array([])
-    num_static_measurements_per_subject = np.array([])
-    frac_subjects_with_birth = np.array([])
-    frac_subjects_with_death = np.array([])
-    n_subjects = np.array([])
-    time_between_data_events = np.array([])
-    time_between_birth_and_data = np.array([])
-    time_between_data_and_death = np.array([])
-    frac_dynamic_code_occurrences_with_values = []
-    frac_static_code_occurrences_with_values = []
+    shards = [pl.read_parquet(shard, use_pyarrow=True) for shard in shards_to_examine]
+    shard_sizes = [shard.select(pl.col(subject_id_field).n_unique()).item() for shard in shards]
 
-    for i, shard in enumerate(shards_to_examine):
-        logger.info(f"Examining shard {shard}")
-        df = pl.scan_parquet(shard)
+    df = pl.concat(shards, how="vertical_relaxed")
+    dynamic_df = df.filter(is_dynamic_data)
 
-        static_codes |= set(df.filter(is_static).select(code_col.unique()).collect())
-        dynamic_codes |= set(df.filter(is_dynamic_data).select(code_col.unique()).collect())
-        birth_codes |= set(df.filter(is_birth).select(code_col.unique()).collect())
-        death_codes |= set(df.filter(is_death).select(code_col.unique()).collect())
+    static_vocab_size = df.filter(is_static).select(code_col.n_unique()).item()
+    dynamic_vocab_size = dynamic_df.select(code_col.n_unique()).item()
+    birth_codes_vocab_size = df.filter(is_birth).select(code_col.n_unique()).item()
+    death_codes_vocab_size = df.filter(is_death).select(code_col.n_unique()).item()
 
-        subject_stats = (
-            df.group_by(subject_id_field)
-            .agg(
-                pl.when(is_birth).then(time_col).min().alias("birth_time"),
-                pl.when(is_death).then(time_col).max().alias("death_time"),
-                is_birth.any().alias("has_birth"),
-                is_death.any().alias("has_death"),
-                is_static.sum().alias("n_static_measurements"),
-            )
-            .collect()
-        )
+    subject_stats = df.group_by(subject_id_field).agg(
+        pl.when(is_birth).then(time_col).min().alias("birth_time"),
+        pl.when(is_death).then(time_col).max().alias("death_time"),
+        is_birth.any().alias("has_birth"),
+        is_death.any().alias("has_death"),
+        is_static.sum().alias("n_static_measurements"),
+    )
+    birth_times = to_dt_list(subject_stats, "birth_time")
 
-        birth_times.extend(subject_stats.select("birth_time").drop_nulls())
-        death_times.extend(subject_stats.select("death_time").drop_nulls())
-        n_subjects.append(len(subject_stats))
-        frac_subjects_with_birth.append(subject_stats.select("has_birth").mean().item())
-        frac_subjects_with_death.append(subject_stats.select("has_death").mean().item())
-        num_static_measurements_per_subject.extend(subject_stats.select("n_static_measurements").drop_nulls())
+    frac_subjects_with_birth = subject_stats.select(pl.col("has_birth").mean()).item()
+    frac_subjects_with_death = subject_stats.select(pl.col("has_death").mean()).item()
+    num_static_measurements_per_subject = subject_stats["n_static_measurements"].drop_nulls().to_list()
 
-        dynamic_df = df.filter(is_dynamic_data)
-
-        subject_dynamic_stats = (
-            dynamic_df.group_by(subject_id_field)
-            .agg(
-                time_col.min().alias("first_data_time"),
-                time_col.max().alias("last_data_time"),
-                time_col.n_unique().alias("n_events"),
-                time_col.unique(maintain_order=True).diff().mean().alias("time_between_events"),
-            )
-            .collect()
-        )
-
-        start_of_data_times.extend(subject_dynamic_stats.select("first_data_time").drop_nulls())
-        num_events_per_subject.extend(subject_dynamic_stats.select("n_events").drop_nulls())
-        time_between_data_events.extend(subject_dynamic_stats.select("time_between_events").drop_nulls())
-
-        boundary_deltas = subject_dynamic_stats.join(subject_stats, on=subject_id_field).select(
-            (pl.col("first_data_time") - pl.col("birth_time"))
-            .alias("time_between_birth_and_data")(pl.col("death_time") - pl.col("last_data_time"))
-            .alias("time_between_data_and_death"),
-        )
-
-        time_between_birth_and_data.extend(boundary_deltas.select("time_between_birth_and_data").drop_nulls())
-        time_between_data_and_death.extend(boundary_deltas.select("time_between_data_and_death").drop_nulls())
-
-        num_measurements_per_event.extend(
-            df.filter(is_dynamic_data).group_by(subject_id_field, time_col).count().collect()
-        )
-        frac_dynamic_code_occurrences_with_values.append(
-            dynamic_df.group_by(code_col)
-            .agg(
-                numerics_present.sum().alias(f"n_values//{i}"),
-                pl.col("*").count().alias(f"n_occurrences//{i}"),
-            )
-            .collect()
-        )
-        frac_static_code_occurrences_with_values.append(
-            df.filter(is_static)
-            .group_by(code_col)
-            .agg(
-                numerics_present.sum().alias(f"n_values//{i}"),
-                pl.col("*").count().alias(f"n_occurrences//{i}"),
-            )
-            .collect()
-        )
-
-    static_vocab_size = len(static_codes)
-    dynamic_vocab_size = len(dynamic_codes)
-    birth_codes_vocab_size = len(birth_codes)
-    death_codes_vocab_size = len(death_codes)
-
-    total_subjects = n_subjects.sum()
-    frac_subjects_with_birth = (frac_subjects_with_birth * n_subjects).sum() / total_subjects
-    frac_subjects_with_death = (frac_subjects_with_death * n_subjects).sum() / total_subjects
-
-    frac_dynamic_code_occurrences_with_values = (
-        pl.join(frac_dynamic_code_occurrences_with_values, on=code_col, how="outer")
-        .select(
-            cs.starts_with("n_occurrences").sum().alias("n_occurrences"),
-            cs.starts_with("n_values").sum().alias("n_values"),
-        )
-        .select(
-            (pl.col("n_values") / pl.col("n_occurrences")).alias("frac_values"),
-        )
-        .collect()
-        .to_numpy()
+    subject_dynamic_stats = dynamic_df.group_by(subject_id_field).agg(
+        time_col.min().alias("first_data_time"),
+        time_col.max().alias("last_data_time"),
+        time_col.n_unique().alias("n_events"),
+        time_col.unique(maintain_order=True).diff().mean().alias("time_between_events"),
     )
 
-    frac_static_code_occurrences_with_values = (
-        pl.join(frac_static_code_occurrences_with_values, on=code_col, how="outer")
-        .select(
-            cs.starts_with("n_occurrences").sum().alias("n_occurrences"),
-            cs.starts_with("n_values").sum().alias("n_values"),
-        )
-        .select(
-            (pl.col("n_values") / pl.col("n_occurrences")).alias("frac_values"),
-        )
-        .collect()
-        .to_numpy()
+    start_of_data_times = to_dt_list(subject_dynamic_stats, "first_data_time")
+    num_events_per_subject = subject_dynamic_stats["n_events"].drop_nulls().to_list()
+    time_between_data_events = subject_dynamic_stats["time_between_events"].drop_nulls().to_numpy()
+
+    boundary_deltas = subject_dynamic_stats.join(subject_stats, on=subject_id_field).select(
+        (pl.col("first_data_time") - pl.col("birth_time")).alias("time_between_birth_and_data"),
+        (pl.col("death_time") - pl.col("last_data_time")).alias("time_between_data_and_death"),
     )
+
+    time_between_birth_and_data = boundary_deltas["time_between_birth_and_data"].drop_nulls().to_numpy()
+    time_between_data_and_death = boundary_deltas["time_between_data_and_death"].drop_nulls().to_numpy()
+
+    num_measurements_per_event = (
+        dynamic_df.group_by(subject_id_field, time_col).agg(pl.count())["count"].to_list()
+    )
+
+    dynamic_code_stats = (
+        dynamic_df.group_by(code_field)
+        .agg(numerics_present.sum().alias("n_values"), pl.count().alias("n_occurrences"))
+        .select((pl.col("n_values") / pl.col("n_occurrences")).alias("frac_values"))
+    )
+    frac_dynamic_code_occurrences_with_values = dynamic_code_stats["frac_values"].to_list()
+
+    static_code_stats = (
+        df.filter(is_static)
+        .group_by(code_field)
+        .agg(numerics_present.sum().alias("n_values"), pl.count().alias("n_occurrences"))
+        .select((pl.col("n_values") / pl.col("n_occurrences")).alias("frac_values"))
+    )
+    frac_static_code_occurrences_with_values = static_code_stats["frac_values"].to_list()
+
+    birth_kwargs = {}
+    if len(birth_times) > 0:
+        birth_kwargs["birth_datetime_per_subject"] = DatetimeGenerator(birth_times)
+        birth_kwargs["birth_codes_vocab_size"] = birth_codes_vocab_size
+        birth_kwargs["time_between_birth_and_data_per_subject"] = PositiveTimeDeltaGenerator(
+            time_between_birth_and_data
+        )
+    else:
+        birth_kwargs["birth_datetime_per_subject"] = None
+        birth_kwargs["birth_codes_vocab_size"] = 0
+        birth_kwargs["time_between_birth_and_data_per_subject"] = None
+
+    death_kwargs = {}
+    if len(time_between_data_and_death) > 0:
+        death_kwargs["death_codes_vocab_size"] = death_codes_vocab_size
+        death_kwargs["time_between_data_and_death_per_subject"] = PositiveTimeDeltaGenerator(
+            time_between_data_and_death
+        )
+    else:
+        death_kwargs["death_codes_vocab_size"] = 0
+        death_kwargs["time_between_data_and_death_per_subject"] = None
 
     data_generator = MEDSDataDFGenerator(
-        birth_datetime_per_subject=DatetimeGenerator(birth_times),
         start_data_datetime_per_subject=DatetimeGenerator(start_of_data_times),
-        time_between_birth_and_data_per_subject=PositiveTimeDeltaGenerator(time_between_birth_and_data),
-        time_between_data_and_death_per_subject=PositiveTimeDeltaGenerator(time_between_data_and_death),
         time_between_data_events_per_subject=PositiveTimeDeltaGenerator(time_between_data_events),
         num_events_per_subject=PositiveIntGenerator(num_events_per_subject),
         num_measurements_per_event=PositiveIntGenerator(num_measurements_per_event),
@@ -251,21 +220,21 @@ def main(cfg: DictConfig):
         dynamic_vocab_size=dynamic_vocab_size,
         frac_subjects_with_death=frac_subjects_with_death,
         frac_subjects_with_birth=frac_subjects_with_birth,
-        birth_codes_vocab_size=birth_codes_vocab_size,
-        death_codes_vocab_size=death_codes_vocab_size,
+        **birth_kwargs,
+        **death_kwargs,
     )
 
     dataset_generator = MEDSDatasetGenerator(
         data_generator=data_generator,
-        shard_size=np.median(n_subjects),
+        shard_size=float(np.median(shard_sizes)),
         train_frac=train_frac,
         tuning_frac=tuning_frac,
         held_out_frac=held_out_frac,
         dataset_name=dataset_name,
     )
 
-    dataset_config = dataclasses.asdict(dataset_generator)
-    output_fp.write_text(dump_yaml(dataset_config, Dumper=Dumper))
+    dataset_config = DictConfig(dataset_generator.to_dict())
+    OmegaConf.save(dataset_config, output_fp)
 
 
 if __name__ == "__main__":
