@@ -7,22 +7,27 @@ death_codes: ["MEDS_DEATH"]
 frac_subjects_with_birth: 1.0
 frac_subjects_with_death: 0.2
 
-birth_datetimes_per_subject:
+birth_datetime_per_subject:
   _target_: meds_testing_helpers.dataset_generator.DatetimeGenerator
   X: ???
   freq: null
 
-time_between_birth_and_data_per_subj:
+start_data_datetime_per_subject:
+  _target_: meds_testing_helpers.dataset_generator.DatetimeGenerator
+  X: ???
+  freq: null
+
+time_between_birth_and_data_per_subject:
   _target_: meds_testing_helpers.dataset_generator.PositiveTimeDeltaGenerator
   X: ???
   freq: null
 
-time_between_data_and_death_per_subj:
+time_between_data_and_death_per_subject:
   _target_: meds_testing_helpers.dataset_generator.PositiveTimeDeltaGenerator
   X: ???
   freq: null
 
-time_between_events_per_subj:
+time_between_data_events_per_subject:
   _target_: meds_testing_helpers.dataset_generator.PositiveTimeDeltaGenerator
   X: ???
   freq: null
