@@ -10,11 +10,13 @@ from typing import Annotated, Any
 import hydra
 import numpy as np
 import polars as pl
-from annotated_types import Ge, Gt
+from annotated_types import Ge, Gt, Le
 from meds import DatasetMetadata
 from meds import __version__ as meds_version
 from meds import (
+    birth_code,
     code_field,
+    death_code,
     description_field,
     held_out_split,
     numeric_value_field,
@@ -26,7 +28,7 @@ from meds import (
 )
 from omegaconf import DictConfig
 
-from . import CONFIG_YAML, __package_name__, __version__
+from . import GEN_YAML, __package_name__, __version__
 from .dataset import MEDSDataset
 
 logger = logging.getLogger(__name__)
@@ -35,6 +37,105 @@ logger = logging.getLogger(__name__)
 NUM = int | float
 POSITIVE_INT = Annotated[int, Ge(0)]
 NON_NEGATIVE_NUM = Annotated[NUM, Gt(-1)]
+POSITIVE_NUM = Annotated[NUM, Gt(0)]
+PROPORTION = Annotated[NUM, Ge(0), Le(1)]
+POSITIVE_TIMEDELTA = Annotated[np.timedelta64, Gt(0)]
+
+
+def is_NUM(x: Any) -> bool:
+    """Check if x is a number.
+
+    Examples:
+        >>> is_NUM(1)
+        True
+        >>> is_NUM(1.0)
+        True
+        >>> is_NUM("a")
+        False
+    """
+    return isinstance(x, (int, float))
+
+
+def is_POSITIVE_NUM(x: Any) -> bool:
+    """Check if x is a positive number.
+
+    Examples:
+        >>> is_POSITIVE_NUM(1)
+        True
+        >>> is_POSITIVE_NUM(0)
+        False
+        >>> is_POSITIVE_NUM(1.0)
+        True
+        >>> is_POSITIVE_NUM("foo")
+        False
+    """
+    return is_NUM(x) and x > 0
+
+
+def is_POSITIVE_INT(x: Any) -> bool:
+    """Check if x is a positive integer.
+
+    Examples:
+        >>> is_POSITIVE_INT(1)
+        True
+        >>> is_POSITIVE_INT(0)
+        False
+        >>> is_POSITIVE_INT(1.0)
+        False
+    """
+    return isinstance(x, int) and x > 0
+
+
+def is_NON_NEGATIVE_NUM(x: Any) -> bool:
+    """Check if x is a non-negative number.
+
+    Examples:
+        >>> is_NON_NEGATIVE_NUM(1)
+        True
+        >>> is_NON_NEGATIVE_NUM(0)
+        True
+        >>> is_NON_NEGATIVE_NUM(-1)
+        False
+        >>> is_NON_NEGATIVE_NUM(1.0)
+        True
+    """
+    return is_NUM(x) and x >= 0
+
+
+def is_PROPORTION(x: Any) -> bool:
+    """Check if x is a proportion (between 0 and 1 inclusive).
+
+    Examples:
+        >>> is_PROPORTION(1)
+        True
+        >>> is_PROPORTION(0)
+        True
+        >>> is_PROPORTION(0.5)
+        True
+        >>> is_PROPORTION(-1)
+        False
+        >>> is_PROPORTION("foo")
+        False
+    """
+    return is_NUM(x) and 0 <= x <= 1
+
+
+def is_POSITIVE_TIMEDELTA(x: Any) -> bool:
+    """Check if x is a positive timedelta.
+
+    Examples:
+        >>> is_POSITIVE_TIMEDELTA(np.timedelta64(1, "s"))
+        True
+        >>> is_POSITIVE_TIMEDELTA(np.timedelta64(0, "s"))
+        False
+        >>> is_POSITIVE_TIMEDELTA(np.timedelta64(1, "m"))
+        True
+        >>> is_POSITIVE_TIMEDELTA(np.timedelta64(-1, "s"))
+        False
+        >>> is_POSITIVE_TIMEDELTA(1)
+        False
+    """
+    return bool(isinstance(x, np.timedelta64) and (x > 0))
 
 
 @dataclass
@@ -88,7 +189,7 @@ class DiscreteGenerator:
     def __post_init__(self):
         if self.freq is None:
             self.freq = [1] * len(self.X)
-        if not all(f > 0 for f in self.freq):
+        if not all(is_NON_NEGATIVE_NUM(f) for f in self.freq):
             raise ValueError("All frequencies should be positive.")
         if len(self.freq) != len(self.X):
             raise ValueError(
@@ -124,11 +225,51 @@ class DatetimeGenerator(DiscreteGenerator):
         array(['2022-02-02', '2022-02-02', '2021-01-01', '2022-02-02',
                '2021-01-01', '2021-01-01', '2022-02-02', '2021-01-01',
                '2022-02-02', '2021-01-01'], dtype='datetime64[D]')
+        >>> DatetimeGenerator([1, 2])
+        Traceback (most recent call last):
+            ...
+        ValueError: All elements should be datetimes.
     """
+
+    X: list[np.datetime64]
 
     def __post_init__(self):
         if not all(isinstance(x, np.datetime64) for x in self.X):
             raise ValueError("All elements should be datetimes.")
+        super().__post_init__()
+
+
+class PositiveTimeDeltaGenerator(DiscreteGenerator):
+    """A class to generate random positive timedeltas.
+
+    This merely applies type-checking to the DiscreteGenerator class.
+
+    Attributes:
+        X: The list of timedeltas to sample from.
+        freq: The frequency of each option. If None, all options are equally weighted.
+
+    Raises:
+        ValueError: In addition to the base class errors, if any of the options are not positive timedeltas.
+
+    Examples:
+        >>> rng = np.random.default_rng(1)
+        >>> PositiveTimeDeltaGenerator([np.timedelta64(1, "s"), np.timedelta64(2, "s")]).rvs(10, rng)
+        array([2, 2, 1, 2, 1, 1, 2, 1, 2, 1], dtype='timedelta64[s]')
+        >>> PositiveTimeDeltaGenerator([1, 2])
+        Traceback (most recent call last):
+            ...
+        ValueError: All elements should be positive timedeltas.
+        >>> PositiveTimeDeltaGenerator([np.timedelta64(1, "s"), np.timedelta64(-1, "s")])
+        Traceback (most recent call last):
+            ...
+        ValueError: All elements should be positive timedeltas.
+    """
+
+    X: list[POSITIVE_TIMEDELTA]
+
+    def __post_init__(self):
+        if not all(is_POSITIVE_TIMEDELTA(x) for x in self.X):
+            raise ValueError("All elements should be positive timedeltas.")
         super().__post_init__()
 
 
@@ -152,16 +293,18 @@ class ProportionGenerator(DiscreteGenerator):
         >>> ProportionGenerator([1, 2])
         Traceback (most recent call last):
             ...
-        ValueError: All elements should be numbers between 0 and 1.
+        ValueError: All elements should be proportions (numbers between 0 and 1 inclusive).
         >>> ProportionGenerator(["a"])
         Traceback (most recent call last):
             ...
-        ValueError: All elements should be numbers between 0 and 1.
+        ValueError: All elements should be proportions (numbers between 0 and 1 inclusive).
     """
 
+    X: list[PROPORTION]
+
     def __post_init__(self):
-        if not all(isinstance(x, (int, float)) and 0 <= x <= 1 for x in self.X):
-            raise ValueError("All elements should be numbers between 0 and 1.")
+        if not all(is_PROPORTION(x) for x in self.X):
+            raise ValueError("All elements should be proportions (numbers between 0 and 1 inclusive).")
         super().__post_init__()
 
 
@@ -195,8 +338,10 @@ class PositiveNumGenerator(DiscreteGenerator):
         ValueError: All elements should be positive numbers.
     """
 
+    X: list[POSITIVE_NUM]
+
     def __post_init__(self):
-        if not all(isinstance(x, (int, float)) and x > 0 for x in self.X):
+        if not all(is_POSITIVE_NUM(x) for x in self.X):
             raise ValueError("All elements should be positive numbers.")
         super().__post_init__()
 
@@ -223,8 +368,10 @@ class PositiveIntGenerator(PositiveNumGenerator):
         ValueError: All elements should be integers.
     """
 
+    X: list[POSITIVE_INT]
+
     def __post_init__(self):
-        if not all(isinstance(x, int) for x in self.X):
+        if not all(is_POSITIVE_INT(x) for x in self.X):
             raise ValueError("All elements should be integers.")
         super().__post_init__()
 
@@ -234,100 +381,188 @@ class MEDSDataDFGenerator:
     """A class to generate whole dataset objects in the form of static and dynamic measurements.
 
     Attributes:
-        num_events_per_subject: A random variable for the number of events (unique timestamps) per subject.
-        num_measurements_per_event: A random variable for the number of measurements (codes and values) per
-            event.
-        num_static_measurements_per_subject: A random variable for the number of static measurements per
-            subject.
-        frac_code_occurrences_with_value: A random variable for the proportion of occurrences of codes that
-            have a value.
-        time_between_events_per_subj: A random variable for the time between events for each subject.
-        vocab_size: The number of unique codes.
+        birth_datetime_per_subject: A generator for the birth datetime of each subject.
+        start_data_datetime_per_subject: A generator for the start datetime of data collection for each
+            subject. Only used for subjects without a birth-date.
+        time_between_birth_and_data_per_subject: A generator for the time between birth and data collection.
+            Only used for subjects with a birth-date.
+        time_between_data_and_death_per_subject: A generator for the time between data collection and death.
+            Only used for subjects with a death-date.
+        time_between_data_events_per_subject: A generator for the time between data events.
+        num_events_per_subject: A generator for the number of events per subject.
+        num_measurements_per_event: A generator for the number of measurements per event.
+        num_static_measurements_per_subject: A generator for the number of static measurements per subject.
+        frac_dynamic_code_occurrences_with_value: A generator for the proportion of dynamic codes with a
+            numeric value.
+        frac_static_code_occurrences_with_value: A generator for the proportion of static codes with a numeric
+            value.
         static_vocab_size: The number of unique static codes.
-        start_datetime_per_subject: A random variable for the start datetime per subject.
-
+        dynamic_vocab_size: The number of unique dynamic codes.
+        frac_subjects_with_death: The proportion of subjects with a death date. The remaining subjects will
+            have no death event in the data.
+        frac_subjects_with_birth: The proportion of subjects with a birth date. The remaining subjects will
+            have no birth event in the data.
+        birth_codes_vocab_size: The number of unique birth codes. Birth codes will be of the form
+            "{meds.birth_code}//{i}", or simply "{meds.birth_code}" if there is only one birth code.
+        death_codes_vocab_size: The number of unique death codes. Death codes will be of the form
+            "{meds.death_code}//{i}", or simply "{meds.death_code}" if there is only one death code.
 
     Raises:
         ValueError: Various validation errors for the input parameters will raise value errors.
 
     Examples:
         >>> rng = np.random.default_rng(1)
-        >>> kwargs = dict(
-        ...     start_datetime_per_subject=DatetimeGenerator([
-        ...         np.datetime64("2021-01-01"), np.datetime64("2022-02-02"), np.datetime64("2023-03-03")
-        ...     ]),
+        >>> DG = MEDSDataDFGenerator(
+        ...     birth_datetime_per_subject=DatetimeGenerator(
+        ...         [np.datetime64("2001-01-01", "us"), np.datetime64("2002-02-02", "us")]
+        ...     ),
+        ...     start_data_datetime_per_subject=DatetimeGenerator(
+        ...         [np.datetime64("2021-01-01", "us"), np.datetime64("2022-02-02", "us")]
+        ...     ),
+        ...     time_between_birth_and_data_per_subject=PositiveTimeDeltaGenerator(
+        ...         [np.timedelta64(20, "Y"), np.timedelta64(30, "Y")]
+        ...     ),
+        ...     time_between_data_and_death_per_subject=PositiveTimeDeltaGenerator(
+        ...         [np.timedelta64(2, "D"), np.timedelta64(10, "D")]
+        ...     ),
+        ...     time_between_data_events_per_subject=PositiveTimeDeltaGenerator(
+        ...         [np.timedelta64(3, "h"), np.timedelta64(20, "m")]
+        ...     ),
         ...     num_events_per_subject=PositiveIntGenerator([1, 2, 3]),
         ...     num_measurements_per_event=PositiveIntGenerator([1, 2, 3]),
         ...     num_static_measurements_per_subject=PositiveIntGenerator([2]),
-        ...     frac_code_occurrences_with_value=ProportionGenerator([0, 0, 0.9]),
-        ...     time_between_events_per_subj=PositiveNumGenerator([1, 2.5, 3]),
+        ...     frac_dynamic_code_occurrences_with_value=ProportionGenerator([0, 0.1, 0.9]),
+        ...     frac_static_code_occurrences_with_value=ProportionGenerator([0]),
+        ...     static_vocab_size=4,
+        ...     dynamic_vocab_size=16,
+        ...     frac_subjects_with_death=0.5,
         ... )
-        >>> DG = MEDSDataDFGenerator(vocab_size=16, static_vocab_size=4, **kwargs)
-        >>> X = DG.sample(3, rng)
-        >>> X # doctest: +NORMALIZE_WHITESPACE
-        shape: (19, 4)
-        ┌────────────┬─────────┬─────────────────────┬───────────────┐
-        │ subject_id ┆ code    ┆ time                ┆ numeric_value │
-        │ ---        ┆ ---     ┆ ---                 ┆ ---           │
-        │ i64        ┆ str     ┆ datetime[μs]        ┆ f64           │
-        ╞════════════╪═════════╪═════════════════════╪═══════════════╡
-        │ 0          ┆ code_1  ┆ null                ┆ null          │
-        │ 0          ┆ code_2  ┆ null                ┆ null          │
-        │ 0          ┆ code_15 ┆ 2023-03-03 00:00:00 ┆ NaN           │
-        │ 0          ┆ code_12 ┆ 2023-03-03 00:00:04 ┆ -0.944752     │
-        │ 0          ┆ code_11 ┆ 2023-03-03 00:00:04 ┆ -0.09827      │
-        │ …          ┆ …       ┆ …                   ┆ …             │
-        │ 2          ┆ code_1  ┆ null                ┆ null          │
-        │ 2          ┆ code_0  ┆ null                ┆ null          │
-        │ 2          ┆ code_4  ┆ 2022-02-02 00:00:02 ┆ NaN           │
-        │ 2          ┆ code_11 ┆ 2022-02-02 00:00:05 ┆ -0.345216     │
-        │ 2          ┆ code_13 ┆ 2022-02-02 00:00:05 ┆ -1.481818     │
-        └────────────┴─────────┴─────────────────────┴───────────────┘
-        >>> MEDSDataDFGenerator(vocab_size="foo", static_vocab_size=4, **kwargs)
-        Traceback (most recent call last):
-            ...
-        ValueError: vocab_size must be an integer.
-        >>> MEDSDataDFGenerator(vocab_size=0, static_vocab_size=4, **kwargs)
-        Traceback (most recent call last):
-            ...
-        ValueError: vocab_size must be positive.
-        >>> MEDSDataDFGenerator(vocab_size=1, static_vocab_size=3.0, **kwargs)
-        Traceback (most recent call last):
-            ...
-        ValueError: static_vocab_size must be an integer.
-        >>> MEDSDataDFGenerator(vocab_size=1, static_vocab_size=-1, **kwargs)
-        Traceback (most recent call last):
-            ...
-        ValueError: static_vocab_size must be positive.
+        >>> DG.sample(3, rng) # doctest: +NORMALIZE_WHITESPACE
+        shape: (31, 4)
+        ┌────────────┬─────────────┬────────────────────────────┬───────────────┐
+        │ subject_id ┆ code        ┆ time                       ┆ numeric_value │
+        │ ---        ┆ ---         ┆ ---                        ┆ ---           │
+        │ i64        ┆ str         ┆ datetime[μs]               ┆ f64           │
+        ╞════════════╪═════════════╪════════════════════════════╪═══════════════╡
+        │ 0          ┆ static//0   ┆ null                       ┆ null          │
+        │ 0          ┆ static//2   ┆ null                       ┆ null          │
+        │ 0          ┆ MEDS_BIRTH  ┆ 2002-02-02 00:00:00        ┆ null          │
+        │ 0          ┆ dynamic//9  ┆ 2032-02-02 06:36:00        ┆ null          │
+        │ 0          ┆ dynamic//9  ┆ 2032-02-02 06:36:00        ┆ null          │
+        │ …          ┆ …           ┆ …                          ┆ …             │
+        │ 2          ┆ dynamic//12 ┆ 2031-01-01 06:36:00        ┆ null          │
+        │ 2          ┆ dynamic//3  ┆ 2031-01-01 06:40:26.352433 ┆ -1.524686     │
+        │ 2          ┆ dynamic//9  ┆ 2031-01-01 06:46:20.142282 ┆ null          │
+        │ 2          ┆ dynamic//9  ┆ 2031-01-01 06:46:20.142282 ┆ null          │
+        │ 2          ┆ dynamic//5  ┆ 2031-01-01 06:46:20.142282 ┆ null          │
+        └────────────┴─────────────┴────────────────────────────┴───────────────┘
     """
+
+    birth_datetime_per_subject: DatetimeGenerator
+    start_data_datetime_per_subject: DatetimeGenerator
+    time_between_birth_and_data_per_subject: PositiveTimeDeltaGenerator
+    time_between_data_and_death_per_subject: PositiveTimeDeltaGenerator
+    time_between_data_events_per_subject: PositiveTimeDeltaGenerator
 
     num_events_per_subject: PositiveIntGenerator
     num_measurements_per_event: PositiveIntGenerator
     num_static_measurements_per_subject: PositiveIntGenerator
-    frac_code_occurrences_with_value: ProportionGenerator
-    time_between_events_per_subj: PositiveNumGenerator
-    vocab_size: POSITIVE_INT
+    frac_dynamic_code_occurrences_with_value: ProportionGenerator
+    frac_static_code_occurrences_with_value: ProportionGenerator
+
     static_vocab_size: POSITIVE_INT
-    start_datetime_per_subject: DatetimeGenerator
+    dynamic_vocab_size: POSITIVE_INT
+    frac_subjects_with_death: PROPORTION
+    frac_subjects_with_birth: PROPORTION = 1
+    birth_codes_vocab_size: POSITIVE_INT = 1
+    death_codes_vocab_size: POSITIVE_INT = 1
 
     def __post_init__(self):
-        if not isinstance(self.vocab_size, int):
-            raise ValueError("vocab_size must be an integer.")
-        if not isinstance(self.static_vocab_size, int):
-            raise ValueError("static_vocab_size must be an integer.")
-        if self.vocab_size <= 0:
-            raise ValueError("vocab_size must be positive.")
-        if self.static_vocab_size <= 0:
-            raise ValueError("static_vocab_size must be positive.")
+        if not is_POSITIVE_INT(self.dynamic_vocab_size):
+            raise ValueError("vocab_size must be a positive integer.")
+        if not is_POSITIVE_INT(self.static_vocab_size):
+            raise ValueError("static_vocab_size must be a positive integer.")
+        if not is_PROPORTION(self.frac_subjects_with_death):
+            raise ValueError("frac_subjects_with_death must be a proportion.")
+        if not is_PROPORTION(self.frac_subjects_with_birth):
+            raise ValueError("frac_subjects_with_birth must be a proportion.")
+        if not is_POSITIVE_INT(self.birth_codes_vocab_size):
+            raise ValueError("birth_codes_vocab_size must be a positive integer.")
+        if not is_POSITIVE_INT(self.death_codes_vocab_size):
+            raise ValueError("death_codes_vocab_size must be a positive integer.")
+
+    @property
+    def birth_codes(self):
+        if self.birth_codes_vocab_size == 1:
+            return [birth_code]
+        return [f"birth_code//{i}" for i in range(self.birth_codes_vocab_size)]
+
+    @property
+    def death_codes(self):
+        if self.death_codes_vocab_size == 1:
+            return [death_code]
+        return [f"death_code//{i}" for i in range(self.death_codes_vocab_size)]
+
+    @property
+    def _subject_specific_gens(self) -> list[DiscreteGenerator]:
+        return [
+            ("num_static_measurements", self.num_static_measurements_per_subject),
+            ("num_events", self.num_events_per_subject),
+            ("birth_datetime", self.birth_datetime_per_subject),
+            ("start_data_datetime", self.start_data_datetime_per_subject),
+            ("time_between_birth_and_data", self.time_between_birth_and_data_per_subject),
+            ("time_between_data_events", self.time_between_data_events_per_subject),
+            ("time_between_data_and_death", self.time_between_data_and_death_per_subject),
+        ]
+
+    def _sample_code_val(
+        self, size: int, vocab_size: int, value_props: np.ndarray, rng: np.random.Generator
+    ) -> tuple:
+        codes = rng.choice(vocab_size, size=size)
+        value_obs_p = value_props[codes]
+        value_obs = rng.random(size=size) < value_obs_p
+        value_num = rng.normal(size=size)
+        values = np.where(value_obs, value_num, None)
+        return codes, values
 
     def sample(self, N_subjects: int, rng: np.random.Generator) -> pl.DataFrame:
-        avg_time_between_events_per_subj = self.time_between_events_per_subj.rvs(N_subjects, rng)
-        n_static_measurements_per_subject = self.num_static_measurements_per_subject.rvs(N_subjects, rng)
-        n_events_per_subject = self.num_events_per_subject.rvs(N_subjects, rng)
-        n_measurements_per_event_per_subject = np.split(
-            self.num_measurements_per_event.rvs(sum(n_events_per_subject), rng),
-            np.cumsum(n_events_per_subject),
+        dynamic_codes_value_props = self.frac_dynamic_code_occurrences_with_value.rvs(
+            self.dynamic_vocab_size, rng
+        )
+        static_codes_value_props = self.frac_static_code_occurrences_with_value.rvs(
+            self.static_vocab_size, rng
+        )
+
+        per_subject_samples = {}
+        for n, gen in self._subject_specific_gens:
+            per_subject_samples[n] = gen.rvs(N_subjects, rng)
+
+        num_events_per_subject = per_subject_samples["num_events"]
+        per_subject_samples["num_measurements_per_event"] = np.split(
+            self.num_measurements_per_event.rvs(sum(num_events_per_subject), rng),
+            np.cumsum(num_events_per_subject),
         )[:-1]
+
+        num_static_measurements = per_subject_samples["num_static_measurements"]
+        static_codes, static_values = self._sample_code_val(
+            size=sum(num_static_measurements),
+            vocab_size=self.static_vocab_size,
+            value_props=static_codes_value_props,
+            rng=rng,
+        )
+
+        per_subject_samples["static_codes"] = np.split(static_codes, np.cumsum(num_static_measurements))[:-1]
+        per_subject_samples["static_values"] = np.split(static_values, np.cumsum(num_static_measurements))[
+            :-1
+        ]
+
+        birth_code_obs_per_subject = rng.binomial(n=1, p=self.frac_subjects_with_birth, size=N_subjects)
+        birth_code_per_subject = rng.choice(self.birth_codes, size=N_subjects)
+        per_subject_samples["birth_code"] = np.where(birth_code_obs_per_subject, birth_code_per_subject, None)
+
+        death_code_obs_per_subject = rng.binomial(n=1, p=self.frac_subjects_with_death, size=N_subjects)
+        death_code_per_subject = rng.choice(self.death_codes, size=N_subjects)
+        per_subject_samples["death_code"] = np.where(death_code_obs_per_subject, death_code_per_subject, None)
 
         dataset = {}
         dataset[subject_id_field] = []
@@ -335,40 +570,63 @@ class MEDSDataDFGenerator:
         dataset[time_field] = []
         dataset[numeric_value_field] = []
 
-        codes_value_props = self.frac_code_occurrences_with_value.rvs(self.vocab_size, rng)
+        for subject in range(N_subjects):
+            subject_samples = {k: v[subject] for k, v in per_subject_samples.items()}
 
-        for subject, n_static_measurements, n_measurements_per_event, avg_time_between_events in zip(
-            range(N_subjects),
-            n_static_measurements_per_subject,
-            n_measurements_per_event_per_subject,
-            avg_time_between_events_per_subj,
-        ):
-            static_codes = rng.choice(self.static_vocab_size, size=n_static_measurements)
-            dataset[code_field].extend(f"code_{i}" for i in static_codes)
-            dataset[subject_id_field].extend([subject] * n_static_measurements)
-            dataset[time_field].extend([None] * n_static_measurements)
-            dataset[numeric_value_field].extend([None] * n_static_measurements)
+            num_static_measurements = subject_samples["num_static_measurements"]
+            static_codes = subject_samples["static_codes"]
+            static_values = subject_samples["static_values"]
 
-            start_datetime = self.start_datetime_per_subject.rvs(1, rng)[0]
+            dataset[subject_id_field].extend([subject] * num_static_measurements)
+            dataset[time_field].extend([None] * num_static_measurements)
+            dataset[code_field].extend(f"static//{i}" for i in static_codes)
+            dataset[numeric_value_field].extend(static_values)
 
-            n_events = len(n_measurements_per_event)
-            timedeltas = rng.exponential(avg_time_between_events, size=n_events)
+            if subject_samples["birth_code"]:
+                birth_datetime = subject_samples["birth_datetime"].astype("datetime64[us]")
+                dataset[subject_id_field].append(subject)
+                dataset[time_field].append(birth_datetime)
+                dataset[code_field].append(subject_samples["birth_code"])
+                dataset[numeric_value_field].append(None)
 
-            for n, timedelta in zip(n_measurements_per_event, timedeltas):
-                codes_obs = rng.choice(self.vocab_size, size=n)
-                value_obs_p = codes_value_props[codes_obs]
-                value_obs = rng.random(size=n) < value_obs_p
-                value_num = rng.normal(size=n)
+                event_datetime = birth_datetime + subject_samples["time_between_birth_and_data"].astype(
+                    "timedelta64[us]"
+                )
+            else:
+                event_datetime = subject_samples["start_data_datetime"]
 
-                values = np.where(value_obs, value_num, np.nan)
+            num_events = subject_samples["num_events"]
+            sec_between_events = rng.exponential(
+                subject_samples["time_between_data_events"] / np.timedelta64(1, "s"),
+                size=num_events,
+            )
+            timedeltas = [np.timedelta64(int(s * 1e6), "us") for s in sec_between_events]
 
-                codes = codes_obs + self.static_vocab_size
-                dataset[code_field].extend([f"code_{i}" for i in codes])
+            for n, timedelta in zip(subject_samples["num_measurements_per_event"], timedeltas):
+                codes, values = self._sample_code_val(
+                    size=n,
+                    vocab_size=self.dynamic_vocab_size,
+                    value_props=dynamic_codes_value_props,
+                    rng=rng,
+                )
+
+                dataset[code_field].extend([f"dynamic//{i}" for i in codes])
                 dataset[subject_id_field].extend([subject] * n)
-                dataset[time_field].extend([start_datetime + np.timedelta64(int(timedelta), "s")] * n)
+                dataset[time_field].extend([event_datetime] * n)
                 dataset[numeric_value_field].extend(values)
 
+                event_datetime += timedelta
+
+            last_event_datetime = dataset[time_field][-1]
+            if subject_samples["death_code"]:
+                time_between_data_and_death = subject_samples["time_between_data_and_death"]
+                dataset[subject_id_field].append(subject)
+                dataset[time_field].append(last_event_datetime + time_between_data_and_death)
+                dataset[code_field].append(subject_samples["death_code"])
+                dataset[numeric_value_field].append(None)
+
         dataset[time_field] = np.array(dataset[time_field], dtype="datetime64[us]")
+
         return pl.DataFrame(dataset)
 
 
@@ -394,16 +652,29 @@ class MEDSDatasetGenerator:
     Examples:
         >>> rng = np.random.default_rng(1)
         >>> data_df_gen = MEDSDataDFGenerator(
-        ...     vocab_size=16,
-        ...     static_vocab_size=4,
-        ...     start_datetime_per_subject=DatetimeGenerator([
-        ...         np.datetime64("2021-01-01"), np.datetime64("2022-02-02"), np.datetime64("2023-03-03")
-        ...     ]),
+        ...     birth_datetime_per_subject=DatetimeGenerator(
+        ...         [np.datetime64("2001-01-01", "us"), np.datetime64("2002-02-02", "us")]
+        ...     ),
+        ...     start_data_datetime_per_subject=DatetimeGenerator(
+        ...         [np.datetime64("2021-01-01", "us"), np.datetime64("2022-02-02", "us")]
+        ...     ),
+        ...     time_between_birth_and_data_per_subject=PositiveTimeDeltaGenerator(
+        ...         [np.timedelta64(20, "Y"), np.timedelta64(30, "Y")]
+        ...     ),
+        ...     time_between_data_and_death_per_subject=PositiveTimeDeltaGenerator(
+        ...         [np.timedelta64(2, "D"), np.timedelta64(10, "D")]
+        ...     ),
+        ...     time_between_data_events_per_subject=PositiveTimeDeltaGenerator(
+        ...         [np.timedelta64(3, "h"), np.timedelta64(20, "m")]
+        ...     ),
         ...     num_events_per_subject=PositiveIntGenerator([1, 2, 3]),
         ...     num_measurements_per_event=PositiveIntGenerator([1, 2, 3]),
         ...     num_static_measurements_per_subject=PositiveIntGenerator([2]),
-        ...     frac_code_occurrences_with_value=ProportionGenerator([0, 0, 0.9]),
-        ...     time_between_events_per_subj=PositiveNumGenerator([1, 2.5, 3]),
+        ...     frac_dynamic_code_occurrences_with_value=ProportionGenerator([0, 0.1, 0.9]),
+        ...     frac_static_code_occurrences_with_value=ProportionGenerator([0]),
+        ...     static_vocab_size=4,
+        ...     dynamic_vocab_size=16,
+        ...     frac_subjects_with_death=0.5,
         ... )
         >>> G = MEDSDatasetGenerator(data_generator=data_df_gen, shard_size=3, dataset_name="MEDS_Sample")
         >>> dataset = G.sample(10, rng)
@@ -429,76 +700,76 @@ class MEDSDatasetGenerator:
         │ ---        ┆ ---      │
         │ i64        ┆ str      │
         ╞════════════╪══════════╡
-        │ 7          ┆ train    │
-        │ 6          ┆ train    │
-        │ 1          ┆ train    │
-        │ 2          ┆ train    │
-        │ 5          ┆ train    │
-        │ 3          ┆ train    │
-        │ 8          ┆ train    │
+        │ 4          ┆ train    │
         │ 0          ┆ train    │
-        │ 4          ┆ tuning   │
-        │ 9          ┆ held_out │
+        │ 1          ┆ train    │
+        │ 9          ┆ train    │
+        │ 7          ┆ train    │
+        │ 2          ┆ train    │
+        │ 6          ┆ train    │
+        │ 8          ┆ train    │
+        │ 5          ┆ tuning   │
+        │ 3          ┆ held_out │
         └────────────┴──────────┘
         >>> len(dataset.data_shards)
         3
         >>> dataset._pl_shards["0"]
-        shape: (19, 4)
-        ┌────────────┬─────────┬─────────────────────┬───────────────┐
-        │ subject_id ┆ code    ┆ time                ┆ numeric_value │
-        │ ---        ┆ ---     ┆ ---                 ┆ ---           │
-        │ i64        ┆ str     ┆ datetime[μs]        ┆ f64           │
-        ╞════════════╪═════════╪═════════════════════╪═══════════════╡
-        │ 0          ┆ code_1  ┆ null                ┆ null          │
-        │ 0          ┆ code_2  ┆ null                ┆ null          │
-        │ 0          ┆ code_15 ┆ 2023-03-03 00:00:00 ┆ NaN           │
-        │ 0          ┆ code_12 ┆ 2023-03-03 00:00:04 ┆ -0.944752     │
-        │ 0          ┆ code_11 ┆ 2023-03-03 00:00:04 ┆ -0.09827      │
-        │ …          ┆ …       ┆ …                   ┆ …             │
-        │ 2          ┆ code_1  ┆ null                ┆ null          │
-        │ 2          ┆ code_0  ┆ null                ┆ null          │
-        │ 2          ┆ code_4  ┆ 2022-02-02 00:00:02 ┆ NaN           │
-        │ 2          ┆ code_11 ┆ 2022-02-02 00:00:05 ┆ -0.345216     │
-        │ 2          ┆ code_13 ┆ 2022-02-02 00:00:05 ┆ -1.481818     │
-        └────────────┴─────────┴─────────────────────┴───────────────┘
+        shape: (31, 4)
+        ┌────────────┬─────────────┬────────────────────────────┬───────────────┐
+        │ subject_id ┆ code        ┆ time                       ┆ numeric_value │
+        │ ---        ┆ ---         ┆ ---                        ┆ ---           │
+        │ i64        ┆ str         ┆ datetime[μs]               ┆ f64           │
+        ╞════════════╪═════════════╪════════════════════════════╪═══════════════╡
+        │ 0          ┆ static//0   ┆ null                       ┆ null          │
+        │ 0          ┆ static//2   ┆ null                       ┆ null          │
+        │ 0          ┆ MEDS_BIRTH  ┆ 2002-02-02 00:00:00        ┆ null          │
+        │ 0          ┆ dynamic//9  ┆ 2032-02-02 06:36:00        ┆ null          │
+        │ 0          ┆ dynamic//9  ┆ 2032-02-02 06:36:00        ┆ null          │
+        │ …          ┆ …           ┆ …                          ┆ …             │
+        │ 2          ┆ dynamic//12 ┆ 2031-01-01 06:36:00        ┆ null          │
+        │ 2          ┆ dynamic//3  ┆ 2031-01-01 06:40:26.352433 ┆ -1.524686     │
+        │ 2          ┆ dynamic//9  ┆ 2031-01-01 06:46:20.142282 ┆ null          │
+        │ 2          ┆ dynamic//9  ┆ 2031-01-01 06:46:20.142282 ┆ null          │
+        │ 2          ┆ dynamic//5  ┆ 2031-01-01 06:46:20.142282 ┆ null          │
+        └────────────┴─────────────┴────────────────────────────┴───────────────┘
         >>> dataset._pl_shards["1"]
-        shape: (15, 4)
-        ┌────────────┬─────────┬─────────────────────┬───────────────┐
-        │ subject_id ┆ code    ┆ time                ┆ numeric_value │
-        │ ---        ┆ ---     ┆ ---                 ┆ ---           │
-        │ i64        ┆ str     ┆ datetime[μs]        ┆ f64           │
-        ╞════════════╪═════════╪═════════════════════╪═══════════════╡
-        │ 3          ┆ code_2  ┆ null                ┆ null          │
-        │ 3          ┆ code_0  ┆ null                ┆ null          │
-        │ 3          ┆ code_7  ┆ 2021-01-01 00:00:00 ┆ NaN           │
-        │ 3          ┆ code_18 ┆ 2021-01-01 00:00:00 ┆ NaN           │
-        │ 4          ┆ code_1  ┆ null                ┆ null          │
-        │ …          ┆ …       ┆ …                   ┆ …             │
-        │ 4          ┆ code_9  ┆ 2022-02-02 00:00:07 ┆ NaN           │
-        │ 5          ┆ code_0  ┆ null                ┆ null          │
-        │ 5          ┆ code_3  ┆ null                ┆ null          │
-        │ 5          ┆ code_9  ┆ 2023-03-03 00:00:01 ┆ NaN           │
-        │ 5          ┆ code_18 ┆ 2023-03-03 00:00:01 ┆ NaN           │
-        └────────────┴─────────┴─────────────────────┴───────────────┘
+        shape: (22, 4)
+        ┌────────────┬─────────────┬────────────────────────────┬───────────────┐
+        │ subject_id ┆ code        ┆ time                       ┆ numeric_value │
+        │ ---        ┆ ---         ┆ ---                        ┆ ---           │
+        │ i64        ┆ str         ┆ datetime[μs]               ┆ f64           │
+        ╞════════════╪═════════════╪════════════════════════════╪═══════════════╡
+        │ 3          ┆ static//2   ┆ null                       ┆ null          │
+        │ 3          ┆ static//3   ┆ null                       ┆ null          │
+        │ 3          ┆ MEDS_BIRTH  ┆ 2001-01-01 00:00:00        ┆ null          │
+        │ 3          ┆ dynamic//10 ┆ 2031-01-01 06:36:00        ┆ null          │
+        │ 3          ┆ dynamic//12 ┆ 2031-01-01 06:36:00        ┆ null          │
+        │ …          ┆ …           ┆ …                          ┆ …             │
+        │ 5          ┆ dynamic//15 ┆ 2031-01-01 06:36:00        ┆ -0.526515     │
+        │ 5          ┆ dynamic//4  ┆ 2031-01-01 06:36:00        ┆ -1.264493     │
+        │ 5          ┆ dynamic//10 ┆ 2031-01-01 06:37:04.199317 ┆ null          │
+        │ 5          ┆ dynamic//8  ┆ 2031-01-01 06:41:31.716960 ┆ -2.019266     │
+        │ 5          ┆ dynamic//4  ┆ 2031-01-01 06:41:31.716960 ┆ 0.420513      │
+        └────────────┴─────────────┴────────────────────────────┴───────────────┘
         >>> dataset._pl_shards["2"]
-        shape: (26, 4)
-        ┌────────────┬─────────┬─────────────────────┬───────────────┐
-        │ subject_id ┆ code    ┆ time                ┆ numeric_value │
-        │ ---        ┆ ---     ┆ ---                 ┆ ---           │
-        │ i64        ┆ str     ┆ datetime[μs]        ┆ f64           │
-        ╞════════════╪═════════╪═════════════════════╪═══════════════╡
-        │ 6          ┆ code_3  ┆ null                ┆ null          │
-        │ 6          ┆ code_1  ┆ null                ┆ null          │
-        │ 6          ┆ code_10 ┆ 2023-03-03 00:00:00 ┆ 2.871567      │
-        │ 6          ┆ code_4  ┆ 2023-03-03 00:00:00 ┆ -1.554731     │
-        │ 6          ┆ code_7  ┆ 2023-03-03 00:00:00 ┆ NaN           │
-        │ …          ┆ …       ┆ …                   ┆ …             │
-        │ 9          ┆ code_15 ┆ 2023-03-03 00:00:00 ┆ NaN           │
-        │ 9          ┆ code_15 ┆ 2023-03-03 00:00:00 ┆ NaN           │
-        │ 9          ┆ code_7  ┆ 2023-03-03 00:00:00 ┆ NaN           │
-        │ 9          ┆ code_14 ┆ 2023-03-03 00:00:00 ┆ NaN           │
-        │ 9          ┆ code_17 ┆ 2023-03-03 00:00:00 ┆ NaN           │
-        └────────────┴─────────┴─────────────────────┴───────────────┘
+        shape: (24, 4)
+        ┌────────────┬────────────┬─────────────────────┬───────────────┐
+        │ subject_id ┆ code       ┆ time                ┆ numeric_value │
+        │ ---        ┆ ---        ┆ ---                 ┆ ---           │
+        │ i64        ┆ str        ┆ datetime[μs]        ┆ f64           │
+        ╞════════════╪════════════╪═════════════════════╪═══════════════╡
+        │ 6          ┆ static//3  ┆ null                ┆ null          │
+        │ 6          ┆ static//0  ┆ null                ┆ null          │
+        │ 6          ┆ MEDS_BIRTH ┆ 2002-02-02 00:00:00 ┆ null          │
+        │ 6          ┆ dynamic//5 ┆ 2022-02-01 20:24:00 ┆ null          │
+        │ 6          ┆ dynamic//1 ┆ 2022-02-01 20:24:00 ┆ null          │
+        │ …          ┆ …          ┆ …                   ┆ …             │
+        │ 8          ┆ dynamic//3 ┆ 2031-01-01 06:36:00 ┆ null          │
+        │ 9          ┆ static//3  ┆ null                ┆ null          │
+        │ 9          ┆ static//0  ┆ null                ┆ null          │
+        │ 9          ┆ MEDS_BIRTH ┆ 2001-01-01 00:00:00 ┆ null          │
+        │ 9          ┆ dynamic//7 ┆ 2020-12-31 20:24:00 ┆ null          │
+        └────────────┴────────────┴─────────────────────┴───────────────┘
     """
 
     data_generator: MEDSDataDFGenerator
@@ -593,7 +864,7 @@ class MEDSDatasetGenerator:
         )
 
 
-@hydra.main(version_base=None, config_path=str(CONFIG_YAML.parent), config_name=CONFIG_YAML.stem)
+@hydra.main(version_base=None, config_path=str(GEN_YAML.parent), config_name=GEN_YAML.stem)
 def main(cfg: DictConfig):
     """Generate a dataset of the specified size."""
 

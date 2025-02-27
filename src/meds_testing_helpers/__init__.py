@@ -7,10 +7,12 @@ try:
 except PackageNotFoundError:  # pragma: no cover
     __version__ = "unknown"
 
-CONFIG_YAML = files(__package_name__).joinpath("configs/generate_dataset.yaml")
+GEN_YAML = files(__package_name__).joinpath("configs/generate_dataset.yaml")
+INF_YAML = files(__package_name__).joinpath("configs/infer_dataset_config.yaml")
 
 __all__ = [
-    "CONFIG_YAML",
+    "GEN_YAML",
+    "INF_YAML",
     "__version__",
     "__package_name__",
 ]

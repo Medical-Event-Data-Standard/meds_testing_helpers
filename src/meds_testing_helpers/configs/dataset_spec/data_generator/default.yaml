@@ -2,14 +2,28 @@ _target_: meds_testing_helpers.dataset_generator.MEDSDataDFGenerator
 
 static_vocab_size: 16
 vocab_size: ???
+birth_codes: ["MEDS_BIRTH"]
+death_codes: ["MEDS_DEATH"]
+frac_subjects_with_birth: 1.0
+frac_subjects_with_death: 0.2
 
-start_datetime_per_subject:
+birth_datetimes_per_subject:
   _target_: meds_testing_helpers.dataset_generator.DatetimeGenerator
   X: ???
   freq: null
 
+time_between_birth_and_data_per_subj:
+  _target_: meds_testing_helpers.dataset_generator.PositiveTimeDeltaGenerator
+  X: ???
+  freq: null
+
+time_between_data_and_death_per_subj:
+  _target_: meds_testing_helpers.dataset_generator.PositiveTimeDeltaGenerator
+  X: ???
+  freq: null
+
 time_between_events_per_subj:
-  _target_: meds_testing_helpers.dataset_generator.PositiveNumGenerator
+  _target_: meds_testing_helpers.dataset_generator.PositiveTimeDeltaGenerator
   X: ???
   freq: null
 
