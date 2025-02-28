@@ -251,7 +251,7 @@ class Stringified(Generic[T], abc.ABC):
 
     @classmethod
     @abc.abstractmethod
-    def _from_str(cls, x: T) -> Any:
+    def _from_str(cls, x: T) -> Any:  # pragma: no cover
         raise NotImplementedError
 
     @property
@@ -259,7 +259,7 @@ class Stringified(Generic[T], abc.ABC):
         return np.array([self._from_str(x) for x in self.X])
 
     @abc.abstractmethod
-    def _validate(self):
+    def _validate(self):  # pragma: no cover
         raise NotImplementedError
 
     def __post_init__(self):
@@ -1051,7 +1051,3 @@ def main(cfg: DictConfig):
     dataset.write(output_dir)
 
     logger.info("Done.")
-
-
-if __name__ == "__main__":
-    main()

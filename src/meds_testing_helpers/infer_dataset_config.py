@@ -21,11 +21,6 @@ from meds import (
 )
 from omegaconf import DictConfig, OmegaConf
 
-try:
-    pass
-except ImportError:
-    pass
-
 from . import INF_YAML
 from .dataset_generator import (
     DatetimeGenerator,
@@ -235,7 +230,3 @@ def main(cfg: DictConfig):
 
     dataset_config = DictConfig(dataset_generator.to_dict())
     OmegaConf.save(dataset_config, output_fp)
-
-
-if __name__ == "__main__":
-    main()
