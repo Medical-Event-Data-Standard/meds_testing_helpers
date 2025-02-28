@@ -80,3 +80,11 @@ metadata/subject_splits.parquet: |2-
   814703,train
   754281,tuning
   1500733,held_out
+
+metadata/codes.parquet: |2-
+  code,description,parent_codes
+  EYE_COLOR//BLUE,Blue Eyes. Less common than brown.,
+  EYE_COLOR//BROWN,Brown Eyes. The most common eye color.,
+  EYE_COLOR//HAZEL,Hazel eyes. These are uncommon,
+  HR,Heart Rate,LOINC/8867-4
+  TEMP,Body Temperature,LOINC/8310-5
