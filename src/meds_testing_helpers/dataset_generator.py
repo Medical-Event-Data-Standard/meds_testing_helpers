@@ -822,13 +822,20 @@ class MEDSDatasetGenerator(Configurable):
         ... )
         >>> G = MEDSDatasetGenerator(data_generator=data_df_gen, shard_size=3, dataset_name="MEDS_Sample")
         >>> dataset = G.sample(10, rng)
-        >>> for k, v in dataset.dataset_metadata.items(): print(f"{k}: {v}")
+        >>> for k, v in dataset.dataset_metadata.items():
+        ...     if k == "etl_version":
+        ...         print(f"{k}: {v.replace(__version__, '...')}") # This is dynamic so we omit it here.
+        ...     elif k == "created_at":
+        ...         print(f"{k}: ...") # This is dynamic so we omit it here.
+        ...     else:
+        ...         print(f"{k}: {v}")
         dataset_name: MEDS_Sample
         dataset_version: 0.0.1
         etl_name: meds_testing_helpers
-        etl_version: 0.0.1
+        etl_version: ...
         meds_version: 0.3.3
-        ...
+        created_at: ...
+        extension_columns: []
         >>> dataset._pl_code_metadata # This is always empty for now as these codes are meaningless.
         shape: (0, 3)
         ┌──────┬─────────────┬──────────────┐
