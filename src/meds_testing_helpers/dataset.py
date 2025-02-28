@@ -8,7 +8,7 @@ from yaml import load as load_yaml
 
 try:
     from yaml import CLoader as Loader
-except ImportError:
+except ImportError:  # pragma: no cover
     from yaml import Loader
 
 import polars as pl
@@ -25,6 +25,7 @@ from meds import (
     description_field,
     numeric_value_field,
     parent_codes_field,
+    prediction_time_field,
     subject_id_field,
     subject_split_schema,
     subject_splits_filepath,
@@ -144,6 +145,11 @@ class MEDSDataset:
           description: [["foo","bar"]]
           parent_codes: [[null,null]]
         subject_splits: None
+        >>> D.shard_fps is None
+        True
+
+    You can save and load datasets from disk in the proper format. Note that equality persists after this
+    operation:
         >>> import tempfile
         >>> with tempfile.TemporaryDirectory() as tmpdir:
         ...     D2 = D.write(Path(tmpdir))
@@ -195,6 +201,147 @@ class MEDSDataset:
           description: [["foo","bar"]]
           parent_codes: [[null,null]]
         subject_splits: None
+
+    You can also add subject splits to the dataset:
+        >>> subject_splits = pl.DataFrame({"subject_id": [0, 1], "split": ["train", "held_out"]})
+        >>> D = MEDSDataset(
+        ...     data_shards=data_shards,
+        ...     dataset_metadata=dataset_metadata,
+        ...     code_metadata=code_metadata,
+        ...     subject_splits=subject_splits
+        ... )
+        >>> print(D)
+        MEDSDataset:
+        dataset_metadata:
+          - dataset_name: test
+          - dataset_version: 0.0.1
+          - etl_name: foo
+          - etl_version: 0.0.1
+          - meds_version: 0.3.3
+          - created_at: 1/1/2025
+          - extension_columns: []
+        data_shards:
+          - 0:
+            pyarrow.Table
+            subject_id: int64
+            time: timestamp[us]
+            code: string
+            numeric_value: float
+            ----
+            subject_id: [[0]]
+            time: [[1970-01-01 00:00:00.000000]]
+            code: [["A"]]
+            numeric_value: [[null]]
+          - 1:
+            pyarrow.Table
+            subject_id: int64
+            time: timestamp[us]
+            code: string
+            numeric_value: float
+            ----
+            subject_id: [[1]]
+            time: [[1970-01-01 00:00:00.000000]]
+            code: [["B"]]
+            numeric_value: [[1]]
+        code_metadata:
+          pyarrow.Table
+          code: string
+          description: string
+          parent_codes: list<item: string>
+            child 0, item: string
+          ----
+          code: [["A","B"]]
+          description: [["foo","bar"]]
+          parent_codes: [[null,null]]
+        subject_splits:
+          pyarrow.Table
+          subject_id: int64
+          split: string
+          ----
+          subject_id: [[0,1]]
+          split: [["train","held_out"]]
+
+    Equality is determined by the equality of the data, metadata, code metadata, and subject splits:
+        >>> D1 = MEDSDataset(
+        ...     data_shards=data_shards,
+        ...     dataset_metadata=dataset_metadata,
+        ...     code_metadata=code_metadata,
+        ...     subject_splits=subject_splits
+        ... )
+        >>> D1 == "foobar"
+        False
+        >>> D2 = MEDSDataset(
+        ...     data_shards=data_shards,
+        ...     dataset_metadata=dataset_metadata,
+        ...     code_metadata=code_metadata,
+        ...     subject_splits=subject_splits
+        ... )
+        >>> D1 == D2
+        True
+        >>> D2 = MEDSDataset(
+        ...     data_shards=data_shards,
+        ...     dataset_metadata=dataset_metadata,
+        ...     code_metadata=code_metadata,
+        ...     subject_splits=None,
+        ... )
+        >>> D1 == D2
+        False
+        >>> alt_data_shards = {
+        ...     "0": pl.DataFrame({"subject_id": [1], "time": [0], "numeric_value": [None], "code": ["A"]}),
+        ...     "1": pl.DataFrame({"subject_id": [1], "time": [0], "numeric_value": [1.0], "code": ["B"]}),
+        ... }
+        >>> D2 = MEDSDataset(
+        ...     data_shards=alt_data_shards,
+        ...     dataset_metadata=dataset_metadata,
+        ...     code_metadata=code_metadata,
+        ...     subject_splits=subject_splits
+        ... )
+        >>> D1 == D2
+        False
+        >>> alt_dataset_metadata = DatasetMetadata(
+        ...     dataset_name="test_2",
+        ...     dataset_version="0.0.1",
+        ...     etl_name="foo",
+        ...     etl_version="0.0.1",
+        ...     meds_version="0.3.3",
+        ...     created_at="1/1/2025",
+        ...     extension_columns=[],
+        ... )
+        >>> D2 = MEDSDataset(
+        ...     data_shards=data_shards,
+        ...     dataset_metadata=alt_dataset_metadata,
+        ...     code_metadata=code_metadata,
+        ...     subject_splits=subject_splits
+        ... )
+        >>> D1 == D2
+        False
+        >>> alt_code_metadata = pl.DataFrame({
+        ...     "code": ["A", "B"], "description": ["bar", "foo"],
+        ...     "parent_codes": pl.Series([None, None], dtype=pl.List(pl.Utf8)),
+        ... })
+        >>> D2 = MEDSDataset(
+        ...     data_shards=data_shards,
+        ...     dataset_metadata=alt_dataset_metadata,
+        ...     code_metadata=alt_code_metadata,
+        ...     subject_splits=subject_splits
+        ... )
+        >>> D1 == D2
+        False
+
+
+    Errors are raised in a number of circumstances:
+        >>> MEDSDataset()
+        Traceback (most recent call last):
+            ...
+        ValueError: data_shards must be provided if root_dir is None
+        >>> MEDSDataset(data_shards=data_shards)
+        Traceback (most recent call last):
+            ...
+        ValueError: dataset_metadata must be provided if root_dir is None
+        >>> MEDSDataset(data_shards=data_shards, dataset_metadata=dataset_metadata)
+        Traceback (most recent call last):
+            ...
+        ValueError: code_metadata must be provided if root_dir is None
     """
 
     DEFAULT_CSV_TS_FORMAT = "%m/%d/%Y, %H:%M:%S"
@@ -247,19 +394,70 @@ class MEDSDataset:
 
     @classmethod
     def _parse_csv(cls, csv: str, **schema) -> pl.DataFrame:
+        """Parses a CSV string into a MEDS-related dataframe using the provided schema.
+
+        Args:
+            csv: The CSV string to parse.
+            schema: The schema to use when parsing the CSV, passed as keyword arguments. Note that timestamp
+                columns will be read as strings then converted to the requested type using the default CSV
+                timestamp format. Schema defaults are _not_ provided, and all CSV columns must have a schema
+                entry.
+
+        Returns:
+            A polars DataFrame with the parsed data.
+
+        Raises:
+            ValueError: If the CSV cannot be read under the provided schema.
+
+        Examples:
+            >>> MEDSDataset._parse_csv(
+            ...     'subject_id,time,code,numeric_value\\n0,"1/1/2025, 12:00:00",foo,1.0',
+            ...     subject_id=pl.Int64, time=pl.Datetime("us"), code=pl.String, numeric_value=pl.Float32
+            ... )
+            shape: (1, 4)
+            ┌────────────┬─────────────────────┬──────┬───────────────┐
+            │ subject_id ┆ time                ┆ code ┆ numeric_value │
+            │ ---        ┆ ---                 ┆ ---  ┆ ---           │
+            │ i64        ┆ datetime[μs]        ┆ str  ┆ f32           │
+            ╞════════════╪═════════════════════╪══════╪═══════════════╡
+            │ 0          ┆ 2025-01-01 12:00:00 ┆ foo  ┆ 1.0           │
+            └────────────┴─────────────────────┴──────┴───────────────┘
+
+        Errors are raised when the schema is incomplete, inaccurate, or the CSV is malformed:
+            >>> MEDSDataset._parse_csv(
+            ...     'subject_id,time,code,numeric_value\\n0,"1/1/2025, 12:00:00",foo,1.0',
+            ... )
+            Traceback (most recent call last):
+                ...
+            ValueError: Missing columns in schema: ['subject_id', 'time', 'code', 'numeric_value']
+            >>> MEDSDataset._parse_csv(
+            ...     'subject_id,time,code,numeric_value\\n0,"1/1/2025, 12:00:00",foo,1.0',
+            ...     subject_id=pl.Int64, time=pl.Datetime("us"), code=pl.Float32, numeric_value=pl.Float32
+            ... )
+            Traceback (most recent call last):
+                ...
+            ValueError: Failed to read:...
+            >>> MEDSDataset._parse_csv(123)
+            Traceback (most recent call last):
+                ...
+            ValueError: csv must be a string; got <class 'int'>
+        """
+
         if not isinstance(csv, str):
             raise ValueError(f"csv must be a string; got {type(csv)}")
 
         read_schema = {**schema}
 
         time_schema = {}
-        for time_col in ["time", "prediction_time"]:
+        for time_col in [time_field, prediction_time_field]:
             if time_col in read_schema:
                 time_schema[time_col] = read_schema.pop(time_col)
                 read_schema[time_col] = pl.String
 
+        cols = csv.split("\n")[0].split(",")
+        if not all(col in read_schema for col in cols):
+            raise ValueError(f"Missing columns in schema: {cols}")
         try:
-            cols = csv.split("\n")[0].split(",")
             df = pl.read_csv(StringIO(csv), schema={col: read_schema[col] for col in cols})
         except Exception as e:
             raise ValueError(f"Failed to read:\n{csv}\nUnder schema:\n{read_schema}") from e
@@ -393,6 +591,101 @@ class MEDSDataset:
               ----
               subject_id: [[239684,1195293,68729,814703,754281],[1500733]]
               split: [["train","train","train","train","tuning"],["held_out"]]
+
+        You can also read from a filepath directly:
+            >>> import tempfile
+            >>> with tempfile.NamedTemporaryFile("w", suffix=".yaml") as f:
+            ...     _ = f.write(SIMPLE_STATIC_SHARDED_BY_SPLIT)
+            ...     _ = f.flush()
+            ...     D = MEDSDataset.from_yaml(f.name)
+            ...     print(D)
+            MEDSDataset:
+            dataset_metadata:
+            data_shards:
+              - train/0:
+                pyarrow.Table
+                subject_id: int64
+                time: timestamp[us]
+                code: string
+                numeric_value: float
+                ----
+                subject_id: [[239684,239684,239684,239684,239684,...,1195293,1195293,1195293,1195293,1195293],[1195293]]
+                time: [[null,null,1980-12-28 00:00:00.000000,2010-05-11 17:41:51.000000,2010-05-11 17:41:51.000000,...,2010-06-20 20:12:31.000000,2010-06-20 20:24:44.000000,2010-06-20 20:24:44.000000,2010-06-20 20:41:33.000000,2010-06-20 20:41:33.000000],[2010-06-20 20:50:04.000000]]
+                code: [["EYE_COLOR//BROWN","HEIGHT","DOB","ADMISSION//CARDIAC","HR",...,"TEMP","HR","TEMP","HR","TEMP"],["DISCHARGE"]]
+                numeric_value: [[null,175.27112,null,null,102.6,...,99.8,107.7,100,107.5,100.4],[null]]
+              - train/1:
+                pyarrow.Table
+                subject_id: int64
+                time: timestamp[us]
+                code: string
+                numeric_value: float
+                ----
+                subject_id: [[68729,68729,68729,68729,68729,...,814703,814703,814703,814703,814703],[814703]]
+                time: [[null,null,1978-03-09 00:00:00.000000,2010-05-26 02:30:56.000000,2010-05-26 02:30:56.000000,...,null,1976-03-28 00:00:00.000000,2010-02-05 05:55:39.000000,2010-02-05 05:55:39.000000,2010-02-05 05:55:39.000000],[2010-02-05 07:02:30.000000]]
+                code: [["EYE_COLOR//HAZEL","HEIGHT","DOB","ADMISSION//PULMONARY","HR",...,"HEIGHT","DOB","ADMISSION//ORTHOPEDIC","HR","TEMP"],["DISCHARGE"]]
+                numeric_value: [[null,160.39531,null,null,86,...,156.4856,null,null,170.2,100.1],[null]]
+              - tuning/0:
+                pyarrow.Table
+                subject_id: int64
+                time: timestamp[us]
+                code: string
+                numeric_value: float
+                ----
+                subject_id: [[754281,754281,754281,754281,754281,754281],[754281]]
+                time: [[null,null,1988-12-19 00:00:00.000000,2010-01-03 06:27:59.000000,2010-01-03 06:27:59.000000,2010-01-03 06:27:59.000000],[2010-01-03 08:22:13.000000]]
+                code: [["EYE_COLOR//BROWN","HEIGHT","DOB","ADMISSION//PULMONARY","HR","TEMP"],["DISCHARGE"]]
+                numeric_value: [[null,166.22261,null,null,142,99.8],[null]]
+              - held_out/0:
+                pyarrow.Table
+                subject_id: int64
+                time: timestamp[us]
+                code: string
+                numeric_value: float
+                ----
+                subject_id: [[1500733,1500733,1500733,1500733,1500733,1500733,1500733,1500733,1500733,1500733],[1500733]]
+                time: [[null,null,1986-07-20 00:00:00.000000,2010-06-03 14:54:38.000000,2010-06-03 14:54:38.000000,2010-06-03 14:54:38.000000,2010-06-03 15:39:49.000000,2010-06-03 15:39:49.000000,2010-06-03 16:20:49.000000,2010-06-03 16:20:49.000000],[2010-06-03 16:44:26.000000]]
+                code: [["EYE_COLOR//BROWN","HEIGHT","DOB","ADMISSION//ORTHOPEDIC","HR","TEMP","HR","TEMP","HR","TEMP"],["DISCHARGE"]]
+                numeric_value: [[null,158.60132,null,null,91.4,100,84.4,100.3,90.1,100.1],[null]]
+            code_metadata:
+              pyarrow.Table
+              code: string
+              description: string
+              parent_codes: list<item: string>
+                child 0, item: string
+              ----
+              code: []
+              description: []
+              parent_codes: []
+            subject_splits:
+              pyarrow.Table
+              subject_id: int64
+              split: string
+              ----
+              subject_id: [[239684,1195293,68729,814703,754281],[1500733]]
+              split: [["train","train","train","train","tuning"],["held_out"]]
+
+        Errors are raised when the YAML is malformed or a non-existent path:
+            >>> MEDSDataset.from_yaml(123)
+            Traceback (most recent call last):
+                ...
+            ValueError: yaml must be a string or a file path; got <class 'int'>
+            >>> with tempfile.TemporaryDirectory() as tmpdir:
+            ...     MEDSDataset.from_yaml(Path(tmpdir) / "nonexistent.yaml")
+            Traceback (most recent call last):
+                ...
+            FileNotFoundError: File not found: ...
+            >>> MEDSDataset.from_yaml("foo: bar")
+            Traceback (most recent call last):
+                ...
+            ValueError: Unrecognized key in YAML: foo. Must start with 'data/' or 'metadata/'.
+            >>> MEDSDataset.from_yaml("metadata/foo: [1, 2]")
+            Traceback (most recent call last):
+                ...
+            ValueError: Expected value for key metadata/foo to be a string, got <class 'list'>
+            >>> MEDSDataset.from_yaml("metadata/foo: bar")
+            Traceback (most recent call last):
+                ...
+            ValueError: Unrecognized key in YAML: metadata/foo
         """  # noqa: E501
         if isinstance(yaml, str) and yaml.endswith(".yaml"):
             logger.debug(f"Inferring yaml {yaml} is a file path as it ends with '.yaml'")
