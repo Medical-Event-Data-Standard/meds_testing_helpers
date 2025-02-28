@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "meds_testing_helpers"
-version = "0.0.1"
+dynamic = ["version"]
 authors = [
   { name="Matthew McDermott", email="mattmcdermott8@gmail.com" },
 ]
@@ -23,6 +23,8 @@ dependencies = ["annotated-types", "numpy", "hydra-core", "polars", "pytest", "m
 [project.optional-dependencies]
 dev = ["pre-commit<4"]
 tests = ["pytest-cov"]
+
+[tool.setuptools_scm]
 
 [project.scripts]
 build_sample_MEDS_dataset = "meds_testing_helpers.dataset_generator:main"
