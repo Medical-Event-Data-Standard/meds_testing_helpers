@@ -18,4 +18,5 @@ def recursive_check(d: dict, full_key: str | None = None):
 
 
 def test_static_datasets():
+    assert len(exported_yamls) > 0
     recursive_check(exported_yamls)
