@@ -67,8 +67,3 @@ def generate_MEDS(request, dataset_spec: str) -> Path:
 @pytest.fixture
 def generated_sample_MEDS(request) -> Path:
     yield from generate_MEDS(request, "sample")
-
-
-@pytest.fixture
-def generated_mimic_like_MEDS(request) -> Path:
-    yield from generate_MEDS(request, "mimic_like")
