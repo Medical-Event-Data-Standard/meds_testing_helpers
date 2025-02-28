@@ -484,16 +484,15 @@ class MEDSDataset:
 
         read_schema = {**cls.PL_CODE_METADATA_SCHEMA}
 
-        if "parent_codes" in read_schema:
-            parent_codes_real = read_schema.pop("parent_codes")
-            read_schema["parent_codes"] = pl.String
+        parent_codes_real = read_schema.pop(parent_codes_field)
+        read_schema[parent_codes_field] = pl.String
 
         df = cls._parse_csv(csv, **read_schema)
 
-        if "parent_codes" in df.columns:
+        if parent_codes_field in df.columns:
             cols = df.columns
             df = df.with_columns(
-                "parent_codes", df["parent_codes"].str.split(", ").cast(parent_codes_real)
+                pl.col(parent_codes_field).str.split(", ").cast(parent_codes_real).alias(parent_codes_field)
             ).select(cols)
 
         return df
@@ -581,9 +580,9 @@ class MEDSDataset:
               parent_codes: list<item: string>
                 child 0, item: string
               ----
-              code: []
-              description: []
-              parent_codes: []
+              code: [["EYE_COLOR//BLUE","EYE_COLOR//BROWN","EYE_COLOR//HAZEL","HR"],["TEMP"]]
+              description: [["Blue Eyes. Less common than brown.","Brown Eyes. The most common eye color.","Hazel eyes. These are uncommon","Heart Rate"],["Body Temperature"]]
+              parent_codes: [[null,null,null,["LOINC/8867-4"]],[["LOINC/8310-5"]]]
             subject_splits:
               pyarrow.Table
               subject_id: int64
@@ -653,9 +652,9 @@ class MEDSDataset:
               parent_codes: list<item: string>
                 child 0, item: string
               ----
-              code: []
-              description: []
-              parent_codes: []
+              code: [["EYE_COLOR//BLUE","EYE_COLOR//BROWN","EYE_COLOR//HAZEL","HR"],["TEMP"]]
+              description: [["Blue Eyes. Less common than brown.","Brown Eyes. The most common eye color.","Hazel eyes. These are uncommon","Heart Rate"],["Body Temperature"]]
+              parent_codes: [[null,null,null,["LOINC/8867-4"]],[["LOINC/8310-5"]]]
             subject_splits:
               pyarrow.Table
               subject_id: int64
