@@ -22,11 +22,11 @@ time_between_birth_and_data_per_subject: null
 time_between_data_and_death_per_subject: null
 time_between_data_events_per_subject:
   X:
-    - 188345466500000 microseconds
-    - 534267075000000 microseconds
-    - 144274029142857 microseconds
-    - 508299956000000 microseconds
-    - 185359287800000 microseconds
+    - 188345466.5s
+    - 534267075.0s
+    - 144274029.142857s
+    - 508299956.0s
+    - 185359287.8s
   freq:
     - 1
     - 1
@@ -142,7 +142,7 @@ frac_static_code_occurrences_with_value:
     - 1
 static_vocab_size: 4
 dynamic_vocab_size: 7
-frac_subjects_with_death: 0.0
-frac_subjects_with_birth: 0.0
+frac_subjects_with_death: 0
+frac_subjects_with_birth: 0
 birth_codes_vocab_size: 0
 death_codes_vocab_size: 0

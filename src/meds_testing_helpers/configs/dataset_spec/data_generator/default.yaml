@@ -1,11 +1,11 @@
 _target_: meds_testing_helpers.dataset_generator.MEDSDataDFGenerator
 
-static_vocab_size: 16
+static_vocab_size: ???
 dynamic_vocab_size: ???
-birth_codes: ["MEDS_BIRTH"]
-death_codes: ["MEDS_DEATH"]
+birth_codes_vocab_size: 1
+death_codes_vocab_size: 1
 frac_subjects_with_birth: 1.0
-frac_subjects_with_death: 0.2
+frac_subjects_with_death: ???
 
 birth_datetime_per_subject:
   _target_: meds_testing_helpers.dataset_generator.DatetimeGenerator
@@ -32,7 +32,12 @@ time_between_data_events_per_subject:
   X: ???
   freq: null
 
-frac_code_occurrences_with_value:
+frac_static_code_occurrences_with_value:
+  _target_: meds_testing_helpers.dataset_generator.ProportionGenerator
+  X: [0]
+  freq: null
+
+frac_dynamic_code_occurrences_with_value:
   _target_: meds_testing_helpers.dataset_generator.ProportionGenerator
   X: ???
   freq: null

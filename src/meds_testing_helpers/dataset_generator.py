@@ -6,11 +6,12 @@ import shutil
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Annotated, Any
+from typing import Annotated, Any, Generic, TypeVar
 
 import hydra
 import numpy as np
 import polars as pl
+import pytimeparse
 from annotated_types import Ge, Gt, Le
 from meds import DatasetMetadata
 from meds import __version__ as meds_version
@@ -227,14 +228,83 @@ class DiscreteGenerator(Configurable):
             raise ValueError("At least one option should be provided. Got length 0.")
 
     @property
+    def _X(self) -> np.ndarray:
+        return np.array(self.X)
+
+    @property
     def p(self) -> np.ndarray:
         return np.array(self.freq) / sum(self.freq)
 
     def rvs(self, size: int, rng: np.random.Generator) -> np.ndarray:
-        return rng.choice(self.X, size=size, p=self.p, replace=True)
+        return rng.choice(self._X, size=size, p=self.p, replace=True)
 
 
-class DatetimeGenerator(DiscreteGenerator):
+import abc
+
+T = TypeVar("T")
+
+
+class Stringified(Generic[T], abc.ABC):
+    @classmethod
+    def _to_str(cls, x: Any) -> str:
+        return str(x)
+
+    @classmethod
+    @abc.abstractmethod
+    def _from_str(cls, x: T) -> Any:
+        raise NotImplementedError
+
+    @property
+    def _X(self) -> np.ndarray:
+        return np.array([self._from_str(x) for x in self.X])
+
+    @abc.abstractmethod
+    def _validate(self):
+        raise NotImplementedError
+
+    def __post_init__(self):
+        if all(isinstance(x, str) for x in self.X):
+            try:
+                self._X
+            except Exception as e:
+                fails = []
+                for x in self.X:
+                    try:
+                        self._from_str(x)
+                    except Exception:
+                        fails.append(x)
+
+                if len(fails) > 5:
+                    fails_str = ", ".join(fails[:5]) + ", ... (total: {len(fails)})"
+                else:
+                    fails_str = ", ".join(fails)
+                raise ValueError(f"All elements should be convertible strings. Got: {fails_str}") from e
+            self._validate(self._X)
+        else:
+            self._validate(self.X)
+
+            str_X = []
+            fails = []
+            for x in self.X:
+                try:
+                    str_X.append(self._to_str(x))
+                except Exception:
+                    fails.append(x)
+
+            if fails:
+                if len(fails) > 5:
+                    fails_str = ", ".join(str(x) for x in fails[:5]) + ", ... (total: {len(fails)})"
+                else:
+                    fails_str = ", ".join(str(x) for x in fails)
+
+                raise ValueError(f"All elements should be convertible to strings. Got {fails_str}")
+            else:
+                self.X = str_X
+
+        super().__post_init__()
+
+
+class DatetimeGenerator(Stringified[np.datetime64], DiscreteGenerator):
     """A class to generate random datetimes.
 
     This merely applies type-checking to the DiscreteGenerator class.
@@ -255,29 +325,22 @@ class DatetimeGenerator(DiscreteGenerator):
         >>> DatetimeGenerator([1, 2])
         Traceback (most recent call last):
             ...
-        ValueError: All elements should be datetimes.
+        ValueError: All elements should be datetimes. Got [1, 2].
     """
 
-    X: list[np.datetime64]
+    X: list[str | np.datetime64]
 
-    def __post_init__(self):
-        if all(isinstance(x, str) for x in self.X):
-            try:
-                self.X = [np.datetime64(x) for x in self.X]
-            except ValueError:
-                raise ValueError("All elements should be datetimes.")
+    @classmethod
+    def _from_str(cls, x: str) -> np.datetime64:
+        return np.datetime64(x)
 
-        if not all(isinstance(x, np.datetime64) for x in self.X):
-            raise ValueError("All elements should be datetimes.")
-        super().__post_init__()
-
-    def to_dict(self):
-        base = super().to_dict()
-        base["X"] = [str(x) for x in base["X"]]
-        return base
+    def _validate(self, X: list[Any]):
+        if not all(isinstance(x, np.datetime64) for x in X):
+            fails = [x for x in X if not isinstance(x, np.datetime64)]
+            raise ValueError(f"All elements should be datetimes. Got {fails}.")
 
 
-class PositiveTimeDeltaGenerator(DiscreteGenerator):
+class PositiveTimeDeltaGenerator(Stringified[np.timedelta64], DiscreteGenerator):
     """A class to generate random positive timedeltas.
 
     This merely applies type-checking to the DiscreteGenerator class.
@@ -296,30 +359,28 @@ class PositiveTimeDeltaGenerator(DiscreteGenerator):
         >>> PositiveTimeDeltaGenerator([1, 2])
         Traceback (most recent call last):
             ...
-        ValueError: All elements should be positive timedeltas.
+        ValueError: All elements should be positive timedeltas. Got [1, 2].
         >>> PositiveTimeDeltaGenerator([np.timedelta64(1, "s"), np.timedelta64(-1, "s")])
         Traceback (most recent call last):
             ...
-        ValueError: All elements should be positive timedeltas.
+        ValueError: All elements should be positive timedeltas. Got [np.timedelta64(-1,'s')].
     """
 
-    X: list[POSITIVE_TIMEDELTA]
+    X: list[POSITIVE_TIMEDELTA | str]
 
-    def __post_init__(self):
-        if all(isinstance(x, str) for x in self.X):
-            try:
-                self.X = [np.timedelta64(x) for x in self.X]
-            except ValueError:
-                raise ValueError("All elements should be positive timedeltas.")
+    def _validate(self, X: list[Any]):
+        if not all(is_POSITIVE_TIMEDELTA(x) for x in X):
+            fails = [x for x in X if not is_POSITIVE_TIMEDELTA(x)]
+            raise ValueError(f"All elements should be positive timedeltas. Got {fails}.")
 
-        if not all(is_POSITIVE_TIMEDELTA(x) for x in self.X):
-            raise ValueError("All elements should be positive timedeltas.")
-        super().__post_init__()
+    @classmethod
+    def _to_str(cls, x: np.timedelta64) -> str:
+        as_sec = x.astype("timedelta64[s]") / np.timedelta64(1, "s")
+        return f"{as_sec}s"
 
-    def to_dict(self):
-        base = super().to_dict()
-        base["X"] = [str(x) for x in base["X"]]
-        return base
+    @classmethod
+    def _from_str(cls, x: str) -> np.timedelta64:
+        return np.timedelta64(int(pytimeparse.parse(x) * 1e9), "ns").astype("timedelta64[s]")
 
 
 class ProportionGenerator(DiscreteGenerator):
@@ -499,11 +560,11 @@ class MEDSDataDFGenerator(Configurable):
         │ 0          ┆ dynamic//9  ┆ 2032-02-02 06:36:00        ┆ null          │
         │ 0          ┆ dynamic//9  ┆ 2032-02-02 06:36:00        ┆ null          │
         │ …          ┆ …           ┆ …                          ┆ …             │
-        │ 2          ┆ dynamic//12 ┆ 2022-02-01 20:24:00        ┆ null          │
-        │ 2          ┆ dynamic//3  ┆ 2022-02-01 20:28:26.352433 ┆ -1.524686     │
-        │ 2          ┆ dynamic//9  ┆ 2022-02-01 20:34:20.142282 ┆ null          │
-        │ 2          ┆ dynamic//9  ┆ 2022-02-01 20:34:20.142282 ┆ null          │
-        │ 2          ┆ dynamic//5  ┆ 2022-02-01 20:34:20.142282 ┆ null          │
+        │ 2          ┆ dynamic//12 ┆ 2032-02-02 06:36:00        ┆ null          │
+        │ 2          ┆ dynamic//3  ┆ 2032-02-02 07:15:57.171901 ┆ -1.524686     │
+        │ 2          ┆ dynamic//9  ┆ 2032-02-02 08:09:01.280550 ┆ null          │
+        │ 2          ┆ dynamic//9  ┆ 2032-02-02 08:09:01.280550 ┆ null          │
+        │ 2          ┆ dynamic//5  ┆ 2032-02-02 08:09:01.280550 ┆ null          │
         └────────────┴─────────────┴────────────────────────────┴───────────────┘
     """
 
@@ -580,11 +641,11 @@ class MEDSDataDFGenerator(Configurable):
             ("num_static_measurements", self.num_static_measurements_per_subject),
             ("num_events", self.num_events_per_subject),
             ("start_data_datetime", self.start_data_datetime_per_subject),
-            ("time_between_birth_and_data", self.time_between_birth_and_data_per_subject),
             ("time_between_data_events", self.time_between_data_events_per_subject),
         ]
         if self.has_births:
             out.append(("birth_datetime", self.birth_datetime_per_subject))
+            out.append(("time_between_birth_and_data", self.time_between_birth_and_data_per_subject))
         if self.has_deaths:
             out.append(("time_between_data_and_death", self.time_between_data_and_death_per_subject))
         return out
@@ -609,7 +670,10 @@ class MEDSDataDFGenerator(Configurable):
 
         per_subject_samples = {}
         for n, gen in self._subject_specific_gens:
-            per_subject_samples[n] = gen.rvs(N_subjects, rng)
+            try:
+                per_subject_samples[n] = gen.rvs(N_subjects, rng)
+            except Exception as e:
+                raise ValueError(f"Failed to generate {n}") from e
 
         num_events_per_subject = per_subject_samples["num_events"]
         per_subject_samples["num_measurements_per_event"] = np.split(
@@ -630,13 +694,19 @@ class MEDSDataDFGenerator(Configurable):
             :-1
         ]
 
-        birth_code_obs_per_subject = rng.binomial(n=1, p=self.frac_subjects_with_birth, size=N_subjects)
-        birth_code_per_subject = rng.choice(self.birth_codes, size=N_subjects)
-        per_subject_samples["birth_code"] = np.where(birth_code_obs_per_subject, birth_code_per_subject, None)
+        if self.has_births:
+            birth_code_obs_per_subject = rng.binomial(n=1, p=self.frac_subjects_with_birth, size=N_subjects)
+            birth_code_per_subject = rng.choice(self.birth_codes, size=N_subjects)
+            per_subject_samples["birth_code"] = np.where(
+                birth_code_obs_per_subject, birth_code_per_subject, None
+            )
 
-        death_code_obs_per_subject = rng.binomial(n=1, p=self.frac_subjects_with_death, size=N_subjects)
-        death_code_per_subject = rng.choice(self.death_codes, size=N_subjects)
-        per_subject_samples["death_code"] = np.where(death_code_obs_per_subject, death_code_per_subject, None)
+        if self.has_deaths:
+            death_code_obs_per_subject = rng.binomial(n=1, p=self.frac_subjects_with_death, size=N_subjects)
+            death_code_per_subject = rng.choice(self.death_codes, size=N_subjects)
+            per_subject_samples["death_code"] = np.where(
+                death_code_obs_per_subject, death_code_per_subject, None
+            )
 
         dataset = {}
         dataset[subject_id_field] = []
@@ -656,7 +726,7 @@ class MEDSDataDFGenerator(Configurable):
             dataset[code_field].extend(f"static//{i}" for i in static_codes)
             dataset[numeric_value_field].extend(static_values)
 
-            if subject_samples["birth_code"]:
+            if subject_samples.get("birth_code", False):
                 birth_datetime = subject_samples["birth_datetime"].astype("datetime64[us]")
                 dataset[subject_id_field].append(subject)
                 dataset[time_field].append(birth_datetime)
@@ -692,7 +762,7 @@ class MEDSDataDFGenerator(Configurable):
                 event_datetime += timedelta
 
             last_event_datetime = dataset[time_field][-1]
-            if subject_samples["death_code"]:
+            if subject_samples.get("death_code", False):
                 time_between_data_and_death = subject_samples["time_between_data_and_death"]
                 dataset[subject_id_field].append(subject)
                 dataset[time_field].append(last_event_datetime + time_between_data_and_death)
@@ -800,11 +870,11 @@ class MEDSDatasetGenerator(Configurable):
         │ 0          ┆ dynamic//9  ┆ 2032-02-02 06:36:00        ┆ null          │
         │ 0          ┆ dynamic//9  ┆ 2032-02-02 06:36:00        ┆ null          │
         │ …          ┆ …           ┆ …                          ┆ …             │
-        │ 2          ┆ dynamic//12 ┆ 2022-02-01 20:24:00        ┆ null          │
-        │ 2          ┆ dynamic//3  ┆ 2022-02-01 20:28:26.352433 ┆ -1.524686     │
-        │ 2          ┆ dynamic//9  ┆ 2022-02-01 20:34:20.142282 ┆ null          │
-        │ 2          ┆ dynamic//9  ┆ 2022-02-01 20:34:20.142282 ┆ null          │
-        │ 2          ┆ dynamic//5  ┆ 2022-02-01 20:34:20.142282 ┆ null          │
+        │ 2          ┆ dynamic//12 ┆ 2032-02-02 06:36:00        ┆ null          │
+        │ 2          ┆ dynamic//3  ┆ 2032-02-02 07:15:57.171901 ┆ -1.524686     │
+        │ 2          ┆ dynamic//9  ┆ 2032-02-02 08:09:01.280550 ┆ null          │
+        │ 2          ┆ dynamic//9  ┆ 2032-02-02 08:09:01.280550 ┆ null          │
+        │ 2          ┆ dynamic//5  ┆ 2032-02-02 08:09:01.280550 ┆ null          │
         └────────────┴─────────────┴────────────────────────────┴───────────────┘
         >>> dataset._pl_shards["1"]
         shape: (22, 4)
@@ -815,9 +885,9 @@ class MEDSDatasetGenerator(Configurable):
         ╞════════════╪═════════════╪════════════════════════════╪═══════════════╡
         │ 3          ┆ static//2   ┆ null                       ┆ null          │
         │ 3          ┆ static//3   ┆ null                       ┆ null          │
-        │ 3          ┆ MEDS_BIRTH  ┆ 2001-01-01 00:00:00        ┆ null          │
-        │ 3          ┆ dynamic//10 ┆ 2031-01-01 06:36:00        ┆ null          │
-        │ 3          ┆ dynamic//12 ┆ 2031-01-01 06:36:00        ┆ null          │
+        │ 3          ┆ MEDS_BIRTH  ┆ 2002-02-02 00:00:00        ┆ null          │
+        │ 3          ┆ dynamic//10 ┆ 2022-02-01 20:24:00        ┆ null          │
+        │ 3          ┆ dynamic//12 ┆ 2022-02-01 20:24:00        ┆ null          │
         │ …          ┆ …           ┆ …                          ┆ …             │
         │ 5          ┆ dynamic//15 ┆ 2032-02-02 06:36:00        ┆ -0.526515     │
         │ 5          ┆ dynamic//4  ┆ 2032-02-02 06:36:00        ┆ -1.264493     │
@@ -838,11 +908,11 @@ class MEDSDatasetGenerator(Configurable):
         │ 6          ┆ dynamic//5 ┆ 2020-12-31 20:24:00 ┆ null          │
         │ 6          ┆ dynamic//1 ┆ 2020-12-31 20:24:00 ┆ null          │
         │ …          ┆ …          ┆ …                   ┆ …             │
-        │ 8          ┆ dynamic//3 ┆ 2031-01-01 06:36:00 ┆ null          │
+        │ 8          ┆ dynamic//3 ┆ 2022-02-01 20:24:00 ┆ null          │
         │ 9          ┆ static//3  ┆ null                ┆ null          │
         │ 9          ┆ static//0  ┆ null                ┆ null          │
-        │ 9          ┆ MEDS_BIRTH ┆ 2002-02-02 00:00:00 ┆ null          │
-        │ 9          ┆ dynamic//7 ┆ 2022-02-01 20:24:00 ┆ null          │
+        │ 9          ┆ MEDS_BIRTH ┆ 2001-01-01 00:00:00 ┆ null          │
+        │ 9          ┆ dynamic//7 ┆ 2031-01-01 06:36:00 ┆ null          │
         └────────────┴────────────┴─────────────────────┴───────────────┘
     """
 
@@ -913,7 +983,7 @@ class MEDSDatasetGenerator(Configurable):
             etl_name=__package_name__,
             etl_version=__version__,
             meds_version=meds_version,
-            created_at=datetime.now(),
+            created_at=datetime.now().isoformat(),
             extension_columns=[],
         )
 
@@ -953,8 +1023,6 @@ class MEDSDatasetGenerator(Configurable):
 @hydra.main(version_base=None, config_path=str(GEN_YAML.parent), config_name=GEN_YAML.stem)
 def main(cfg: DictConfig):
     """Generate a dataset of the specified size."""
-
-    cfg = hydra.utils.instantiate(cfg)
 
     output_dir = Path(cfg.output_dir)
 
