@@ -25,8 +25,19 @@ def pytest_addoption(parser):
         default=1,
     )
 
+    parser.addoption(
+        "--MEDS-datasets-scope",
+        type=str,
+        help="For generated or static dataset fixtures, what scope to use?",
+        default="session",
+    )
 
-@pytest.fixture
+
+def get_MEDS_datasets_scope(fixture_name: str, config) -> str:
+    return config.getoption("--MEDS-datasets-scope")
+
+
+@pytest.fixture(scope=get_MEDS_datasets_scope)
 def simple_static_MEDS() -> Path:
     with tempfile.TemporaryDirectory() as data_dir:
         data_dir = Path(data_dir)
@@ -64,6 +75,6 @@ def generate_MEDS(request, dataset_spec: str) -> Path:
         yield data_dir
 
 
-@pytest.fixture
+@pytest.fixture(scope=get_MEDS_datasets_scope)
 def generated_sample_MEDS(request) -> Path:
     yield from generate_MEDS(request, "sample")
