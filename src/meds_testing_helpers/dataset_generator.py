@@ -27,14 +27,16 @@ from omegaconf import DictConfig
 from . import GEN_YAML, __package_name__, __version__
 from .dataset import MEDSDataset
 from .rvs import (
-    NON_NEGATIVE_INT,
-    POSITIVE_INT,
-    PROPORTION,
     DatetimeGenerator,
     DiscreteGenerator,
     PositiveIntGenerator,
     PositiveTimeDeltaGenerator,
     ProportionGenerator,
+)
+from .types import (
+    NON_NEGATIVE_INT,
+    POSITIVE_INT,
+    PROPORTION,
     is_NON_NEGATIVE_INT,
     is_POSITIVE_INT,
     is_PROPORTION,
