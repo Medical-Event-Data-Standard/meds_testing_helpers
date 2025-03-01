@@ -1,5 +1,6 @@
 #!/usr/bin/env python
 
+import dataclasses
 import json
 import logging
 from pathlib import Path
@@ -228,5 +229,5 @@ def main(cfg: DictConfig):
         dataset_name=dataset_name,
     )
 
-    dataset_config = DictConfig(dataset_generator.to_dict())
+    dataset_config = DictConfig(dataclasses.asdict(dataset_generator))
     OmegaConf.save(dataset_config, output_fp)
