@@ -1,3 +1,4 @@
+import abc
 from dataclasses import dataclass
 from typing import Any, Generic, TypeVar
 
@@ -16,6 +17,68 @@ from .types import (
     is_POSITIVE_TIMEDELTA,
     is_PROPORTION,
 )
+
+T = TypeVar("T")
+
+
+class Stringified(Generic[T], abc.ABC):
+    @classmethod
+    def _to_str(cls, x: Any) -> str:
+        return str(x)
+
+    @classmethod
+    @abc.abstractmethod
+    def _from_str(cls, x: T) -> Any:  # pragma: no cover
+        raise NotImplementedError
+
+    @property
+    def _X(self) -> np.ndarray:
+        return np.array([self._from_str(x) for x in self.X])
+
+    @abc.abstractmethod
+    def _validate(self):  # pragma: no cover
+        raise NotImplementedError
+
+    def __post_init__(self):
+        if all(isinstance(x, str) for x in self.X):
+            try:
+                self._X
+            except Exception as e:
+                fails = []
+                for x in self.X:
+                    try:
+                        self._from_str(x)
+                    except Exception:
+                        fails.append(x)
+
+                if len(fails) > 5:
+                    fails_str = ", ".join(fails[:5]) + ", ... (total: {len(fails)})"
+                else:
+                    fails_str = ", ".join(fails)
+                raise ValueError(f"All elements should be convertible strings. Got: {fails_str}") from e
+            self._validate(self._X)
+        else:
+            self._validate(self.X)
+
+            str_X = []
+            fails = []
+            for x in self.X:
+                try:
+                    str_X.append(self._to_str(x))
+                except Exception:
+                    fails.append(x)
+
+            if fails:
+                if len(fails) > 5:
+                    fails_str = ", ".join(str(x) for x in fails[:5]) + ", ... (total: {len(fails)})"
+                else:
+                    fails_str = ", ".join(str(x) for x in fails)
+
+                raise ValueError(f"All elements should be convertible to strings. Got {fails_str}")
+            else:
+                self.X = str_X
+
+        super().__post_init__()
 
 
 @dataclass
@@ -89,71 +152,6 @@ class DiscreteGenerator:
 
     def rvs(self, size: int, rng: np.random.Generator) -> np.ndarray:
         return rng.choice(self._X, size=size, p=self.p, replace=True)
-
-
-import abc
-
-T = TypeVar("T")
-
-
-class Stringified(Generic[T], abc.ABC):
-    @classmethod
-    def _to_str(cls, x: Any) -> str:
-        return str(x)
-
-    @classmethod
-    @abc.abstractmethod
-    def _from_str(cls, x: T) -> Any:  # pragma: no cover
-        raise NotImplementedError
-
-    @property
-    def _X(self) -> np.ndarray:
-        return np.array([self._from_str(x) for x in self.X])
-
-    @abc.abstractmethod
-    def _validate(self):  # pragma: no cover
-        raise NotImplementedError
-
-    def __post_init__(self):
-        if all(isinstance(x, str) for x in self.X):
-            try:
-                self._X
-            except Exception as e:
-                fails = []
-                for x in self.X:
-                    try:
-                        self._from_str(x)
-                    except Exception:
-                        fails.append(x)
-
-                if len(fails) > 5:
-                    fails_str = ", ".join(fails[:5]) + ", ... (total: {len(fails)})"
-                else:
-                    fails_str = ", ".join(fails)
-                raise ValueError(f"All elements should be convertible strings. Got: {fails_str}") from e
-            self._validate(self._X)
-        else:
-            self._validate(self.X)
-
-            str_X = []
-            fails = []
-            for x in self.X:
-                try:
-                    str_X.append(self._to_str(x))
-                except Exception:
-                    fails.append(x)
-
-            if fails:
-                if len(fails) > 5:
-                    fails_str = ", ".join(str(x) for x in fails[:5]) + ", ... (total: {len(fails)})"
-                else:
-                    fails_str = ", ".join(str(x) for x in fails)
-
-                raise ValueError(f"All elements should be convertible to strings. Got {fails_str}")
-            else:
-                self.X = str_X
-
-        super().__post_init__()
 
 
 class DatetimeGenerator(Stringified[np.datetime64], DiscreteGenerator):
