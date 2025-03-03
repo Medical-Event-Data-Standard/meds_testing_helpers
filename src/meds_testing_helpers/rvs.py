@@ -1,5 +1,6 @@
 import abc
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Any, Generic, TypeVar
 
 import numpy as np
@@ -40,43 +41,10 @@ class Stringified(Generic[T], abc.ABC):
         raise NotImplementedError
 
     def __post_init__(self):
-        if all(isinstance(x, str) for x in self.X):
-            try:
-                self._X
-            except Exception as e:
-                fails = []
-                for x in self.X:
-                    try:
-                        self._from_str(x)
-                    except Exception:
-                        fails.append(x)
+        if not all(isinstance(x, str) for x in self.X):
+            self.X = [self._to_str(x) for x in self.X]
 
-                if len(fails) > 5:
-                    fails_str = ", ".join(fails[:5]) + ", ... (total: {len(fails)})"
-                else:
-                    fails_str = ", ".join(fails)
-                raise ValueError(f"All elements should be convertible strings. Got: {fails_str}") from e
-            self._validate(self._X)
-        else:
-            self._validate(self.X)
-
-            str_X = []
-            fails = []
-            for x in self.X:
-                try:
-                    str_X.append(self._to_str(x))
-                except Exception:
-                    fails.append(x)
-
-            if fails:
-                if len(fails) > 5:
-                    fails_str = ", ".join(str(x) for x in fails[:5]) + ", ... (total: {len(fails)})"
-                else:
-                    fails_str = ", ".join(str(x) for x in fails)
-
-                raise ValueError(f"All elements should be convertible to strings. Got {fails_str}")
-            else:
-                self.X = str_X
+        self._validate(self._X)
 
         super().__post_init__()
 
@@ -175,19 +143,48 @@ class DatetimeGenerator(Stringified[np.datetime64], DiscreteGenerator):
         >>> DatetimeGenerator([1, 2])
         Traceback (most recent call last):
             ...
-        ValueError: All elements should be datetimes. Got [1, 2].
+        ValueError: Could not convert '1' to a datetime.
+        >>> DatetimeGenerator(["a"])
+        Traceback (most recent call last):
+            ...
+        ValueError: Could not convert 'a' to a datetime.
     """
 
     X: list[str | np.datetime64]
 
     @classmethod
     def _from_str(cls, x: str) -> np.datetime64:
-        return np.datetime64(x)
+        """Convert a string to a datetime.
+
+        Examples:
+            >>> DatetimeGenerator._from_str("2021-01-01")
+            np.datetime64('2021-01-01')
+            >>> DatetimeGenerator._from_str("2021-01-01 00:00:00")
+            np.datetime64('2021-01-01T00:00:00')
+            >>> DatetimeGenerator._from_str("2021-01-01T00:00:00")
+            np.datetime64('2021-01-01T00:00:00')
+            >>> DatetimeGenerator._from_str("2021-01-01T00:00:00.000")
+            np.datetime64('2021-01-01T00:00:00.000')
+            >>> DatetimeGenerator._from_str("1")
+            Traceback (most recent call last):
+                ...
+            ValueError: Could not convert '1' to a datetime.
+        """
+        formats = ["%Y-%m-%d", "%Y-%m-%d %H:%M:%S", "%Y-%m-%dT%H:%M:%S", "%Y-%m-%dT%H:%M:%S.%f"]
+
+        try:
+            for fmt in formats:
+                try:
+                    _ = np.datetime64(datetime.strptime(x, fmt))
+                    return np.datetime64(x)
+                except Exception:
+                    pass
+            raise ValueError(f"Could not convert '{x}' to a datetime in allowed formats: {formats}.")
+        except Exception as e:
+            raise ValueError(f"Could not convert '{x}' to a datetime.") from e
 
     def _validate(self, X: list[Any]):
-        if not all(isinstance(x, np.datetime64) for x in X):
-            fails = [x for x in X if not isinstance(x, np.datetime64)]
-            raise ValueError(f"All elements should be datetimes. Got {fails}.")
+        pass
 
 
 class PositiveTimeDeltaGenerator(Stringified[np.timedelta64], DiscreteGenerator):
@@ -209,11 +206,15 @@ class PositiveTimeDeltaGenerator(Stringified[np.timedelta64], DiscreteGenerator)
         >>> PositiveTimeDeltaGenerator([1, 2])
         Traceback (most recent call last):
             ...
-        ValueError: All elements should be positive timedeltas. Got [1, 2].
+        ValueError: Could not convert 1 to a proper string.
         >>> PositiveTimeDeltaGenerator([np.timedelta64(1, "s"), np.timedelta64(-1, "s")])
         Traceback (most recent call last):
             ...
         ValueError: All elements should be positive timedeltas. Got [np.timedelta64(-1,'s')].
+        >>> PositiveTimeDeltaGenerator(["a"])
+        Traceback (most recent call last):
+            ...
+        ValueError: Could not convert 'a' to a timedelta.
     """
 
     X: list[POSITIVE_TIMEDELTA | str]
@@ -225,12 +226,18 @@ class PositiveTimeDeltaGenerator(Stringified[np.timedelta64], DiscreteGenerator)
 
     @classmethod
     def _to_str(cls, x: np.timedelta64) -> str:
-        as_sec = x.astype("timedelta64[s]") / np.timedelta64(1, "s")
-        return f"{as_sec}s"
+        try:
+            as_sec = x.astype("timedelta64[s]") / np.timedelta64(1, "s")
+            return f"{as_sec}s"
+        except Exception as e:
+            raise ValueError(f"Could not convert {x} to a proper string.") from e
 
     @classmethod
     def _from_str(cls, x: str) -> np.timedelta64:
-        return np.timedelta64(int(pytimeparse.parse(x) * 1e9), "ns").astype("timedelta64[s]")
+        try:
+            return np.timedelta64(int(pytimeparse.parse(x) * 1e9), "ns").astype("timedelta64[s]")
+        except Exception as e:
+            raise ValueError(f"Could not convert '{x}' to a timedelta.") from e
 
 
 class ProportionGenerator(DiscreteGenerator):
