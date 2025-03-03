@@ -17,8 +17,10 @@ classifiers = [
     "License :: OSI Approved :: MIT License",
     "Operating System :: OS Independent",
 ]
-dependencies = ["annotated-types", "numpy", "hydra-core", "polars", "pytest", "meds==0.3.3", "pyarrow",
-"pytimeparse"]
+dependencies = [
+  "annotated-types", "numpy", "hydra-core", "polars", "pytest", "meds==0.3.3", "pyarrow", "pytimeparse",
+  "pomegranate",
+]
 
 [project.optional-dependencies]
 dev = ["pre-commit<4"]

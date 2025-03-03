@@ -4,6 +4,7 @@ from typing import Any, Generic, TypeVar
 
 import numpy as np
 import pytimeparse
+from pomegranate.distributions import NormalDistribution
 
 from .types import (
     NON_NEGATIVE_NUM,
@@ -21,6 +22,86 @@ from .types import (
 T = TypeVar("T")
 
 
+class RV(Generic[T], abc.ABC):
+    """A base class for random variables that supports inference of parameters, stringification, and sampling.
+
+    This class needs to be subclassed so that attributes concerning the type of RV can be defined.
+    """
+
+    DISTRIBUTIONS = {
+        "Normal": NormalDistribution,
+    }
+
+    def __init__(self, is_fit: bool = False):
+        self._is_fit = is_fit
+
+        if not is_fit:
+            self.fit()
+
+        self._validate()
+
+    def fit(self):
+        self._fit()
+        self._is_fit = True
+
+    @abc.abstractmethod
+    def _fit(self):  # pragma: no cover
+        raise NotImplementedError
+
+    @abc.abstractmethod
+    def _validate(self):  # pragma: no cover
+        raise NotImplementedError
+
+    def rvs(self, size: int, rng: np.random.Generator) -> np.ndarray:
+        if not self._is_fit:
+            raise ValueError("Cannot sample from an unfitted distribution.")
+        return self._rvs(size, rng)
+
+    @abc.abstractmethod
+    def _rvs(self, size: int, rng: np.random.Generator) -> np.ndarray:  # pragma: no cover
+        raise NotImplementedError
+
+
+class MultinomialRV(RV[T]):
+    def __init__(self, X: list[T], counts: list[int] | None = None, **kwargs):
+        self.X = X
+        self.counts = counts
+        super().__init__(**kwargs)
+
+    @property
+    def n_options(self) -> int:
+        return len(self.X)
+
+    def _fit(self):
+        if self.counts is None:
+            self.counts = [1] * self.n_options
+
+    def _validate(self):
+        if len(self.counts) != self.n_options:
+            raise ValueError(
+                f"Equal numbers of frequencies and options must be provided. Got {len(self.counts)} and "
+                f"{len(self.X)}."
+            )
+
+    def _rvs(self, size: int, rng: np.random.Generator) -> np.ndarray:
+        return rng.choice(self.X, size=size, p=self.counts, replace=True)
+
+
+class UnboundedRV(RV[T]):
+    def __init__(self, X: list[T], **kwargs):
+        self.X = X
+        super().__init__(**kwargs)
+
+    def _fit(self):
+        pass
+
+    def _validate(self):
+        pass
+
+    def _rvs(self, size: int, rng: np.random.Generator) -> np.ndarray:
+        return rng.choice(self.X, size=size, replace=True)
+
+
 class Stringified(Generic[T], abc.ABC):
     @classmethod
     def _to_str(cls, x: Any) -> str:
@@ -34,10 +115,6 @@ class Stringified(Generic[T], abc.ABC):
     @property
     def _X(self) -> np.ndarray:
         return np.array([self._from_str(x) for x in self.X])
-
-    @abc.abstractmethod
-    def _validate(self):  # pragma: no cover
-        raise NotImplementedError
 
     def __post_init__(self):
         if all(isinstance(x, str) for x in self.X):
