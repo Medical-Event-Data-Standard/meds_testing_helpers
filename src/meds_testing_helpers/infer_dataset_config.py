@@ -222,7 +222,7 @@ def main(cfg: DictConfig):
 
     dataset_generator = MEDSDatasetGenerator(
         data_generator=data_generator,
-        shard_size=float(np.median(shard_sizes)),
+        shard_size=int(np.median(shard_sizes)),
         train_frac=train_frac,
         tuning_frac=tuning_frac,
         held_out_frac=held_out_frac,

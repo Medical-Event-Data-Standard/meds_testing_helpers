@@ -10,7 +10,7 @@ from .dataset import MEDSDataset
 from .static_sample_data import SIMPLE_STATIC_SHARDED_BY_SPLIT
 
 
-def pytest_addoption(parser):
+def pytest_addoption(parser):  # pragma: no cover
     parser.addoption(
         "--generated-dataset-N",
         type=int,
@@ -69,7 +69,7 @@ def generate_MEDS(request, dataset_spec: str) -> Path:
             f"Command stderr:\n{out.stderr.decode()}"
         )
 
-        if out.returncode != 0:
+        if out.returncode != 0:  # pragma: no cover
             raise RuntimeError(error_str)
 
         yield data_dir

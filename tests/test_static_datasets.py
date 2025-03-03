@@ -1,7 +1,5 @@
-import importlib
-
-import meds_testing_helpers.static_sample_data
 from meds_testing_helpers.dataset import MEDSDataset
+from meds_testing_helpers.static_sample_data import exported_yamls
 
 
 def recursive_check(d: dict, full_key: str | None = None):
@@ -20,9 +18,5 @@ def recursive_check(d: dict, full_key: str | None = None):
 
 
 def test_static_datasets():
-    # This reload ensures that pytest catches coverage for the `__init__.py` file in the static data.
-    importlib.reload(meds_testing_helpers.static_sample_data)
-    from meds_testing_helpers.static_sample_data import exported_yamls
-
     assert len(exported_yamls) > 0
     recursive_check(exported_yamls)

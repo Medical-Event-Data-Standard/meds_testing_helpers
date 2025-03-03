@@ -367,7 +367,7 @@ class MEDSDataset:
         ... })
         >>> D2 = MEDSDataset(
         ...     data_shards=data_shards,
-        ...     dataset_metadata=alt_dataset_metadata,
+        ...     dataset_metadata=dataset_metadata,
         ...     code_metadata=alt_code_metadata,
         ...     subject_splits=subject_splits
         ... )
@@ -641,6 +641,7 @@ class MEDSDataset:
             If no dataset metadata is specified, a default dataset metadata object will be created.
 
         Examples:
+        A more complex yaml file example from the static examples:
             >>> from meds_testing_helpers.static_sample_data import SIMPLE_STATIC_SHARDED_BY_SPLIT
             >>> D = MEDSDataset.from_yaml(SIMPLE_STATIC_SHARDED_BY_SPLIT)
             >>> print(D)
@@ -711,75 +712,30 @@ class MEDSDataset:
 
         You can also read from a filepath directly:
             >>> import tempfile
+            >>> yaml_lines = [
+            ...    "data/train/0: |-2",
+            ...    "  subject_id,time,code,numeric_value",
+            ...    '  0,"1/1/2025, 12:00:00",A,',
+            ...    "metadata/subject_splits.parquet: |-2",
+            ...    "  subject_id,split",
+            ...    "  0,train",
+            ...    "metadata/dataset.json:",
+            ...    "  dataset_name: test",
+            ...    "  dataset_version: 0.0.1",
+            ... ]
             >>> with tempfile.NamedTemporaryFile("w", suffix=".yaml") as f:
-            ...     _ = f.write(SIMPLE_STATIC_SHARDED_BY_SPLIT)
+            ...     for line in yaml_lines:
+            ...         _ = f.write(f"{line}\\n")
             ...     _ = f.flush()
             ...     D = MEDSDataset.from_yaml(f.name)
-            ...     print(D)
-            MEDSDataset:
-            dataset_metadata:
-            data_shards:
-              - train/0:
-                pyarrow.Table
-                subject_id: int64
-                time: timestamp[us]
-                code: string
-                numeric_value: float
-                ----
-                subject_id: [[239684,239684,239684,239684,239684,...,1195293,1195293,1195293,1195293,1195293],[1195293]]
-                time: [[null,null,1980-12-28 00:00:00.000000,2010-05-11 17:41:51.000000,2010-05-11 17:41:51.000000,...,2010-06-20 20:12:31.000000,2010-06-20 20:24:44.000000,2010-06-20 20:24:44.000000,2010-06-20 20:41:33.000000,2010-06-20 20:41:33.000000],[2010-06-20 20:50:04.000000]]
-                code: [["EYE_COLOR//BROWN","HEIGHT","DOB","ADMISSION//CARDIAC","HR",...,"TEMP","HR","TEMP","HR","TEMP"],["DISCHARGE"]]
-                numeric_value: [[null,175.27112,null,null,102.6,...,99.8,107.7,100,107.5,100.4],[null]]
-              - train/1:
-                pyarrow.Table
-                subject_id: int64
-                time: timestamp[us]
-                code: string
-                numeric_value: float
-                ----
-                subject_id: [[68729,68729,68729,68729,68729,...,814703,814703,814703,814703,814703],[814703]]
-                time: [[null,null,1978-03-09 00:00:00.000000,2010-05-26 02:30:56.000000,2010-05-26 02:30:56.000000,...,null,1976-03-28 00:00:00.000000,2010-02-05 05:55:39.000000,2010-02-05 05:55:39.000000,2010-02-05 05:55:39.000000],[2010-02-05 07:02:30.000000]]
-                code: [["EYE_COLOR//HAZEL","HEIGHT","DOB","ADMISSION//PULMONARY","HR",...,"HEIGHT","DOB","ADMISSION//ORTHOPEDIC","HR","TEMP"],["DISCHARGE"]]
-                numeric_value: [[null,160.39531,null,null,86,...,156.4856,null,null,170.2,100.1],[null]]
-              - tuning/0:
-                pyarrow.Table
-                subject_id: int64
-                time: timestamp[us]
-                code: string
-                numeric_value: float
-                ----
-                subject_id: [[754281,754281,754281,754281,754281,754281],[754281]]
-                time: [[null,null,1988-12-19 00:00:00.000000,2010-01-03 06:27:59.000000,2010-01-03 06:27:59.000000,2010-01-03 06:27:59.000000],[2010-01-03 08:22:13.000000]]
-                code: [["EYE_COLOR//BROWN","HEIGHT","DOB","ADMISSION//PULMONARY","HR","TEMP"],["DISCHARGE"]]
-                numeric_value: [[null,166.22261,null,null,142,99.8],[null]]
-              - held_out/0:
-                pyarrow.Table
-                subject_id: int64
-                time: timestamp[us]
-                code: string
-                numeric_value: float
-                ----
-                subject_id: [[1500733,1500733,1500733,1500733,1500733,1500733,1500733,1500733,1500733,1500733],[1500733]]
-                time: [[null,null,1986-07-20 00:00:00.000000,2010-06-03 14:54:38.000000,2010-06-03 14:54:38.000000,2010-06-03 14:54:38.000000,2010-06-03 15:39:49.000000,2010-06-03 15:39:49.000000,2010-06-03 16:20:49.000000,2010-06-03 16:20:49.000000],[2010-06-03 16:44:26.000000]]
-                code: [["EYE_COLOR//BROWN","HEIGHT","DOB","ADMISSION//ORTHOPEDIC","HR","TEMP","HR","TEMP","HR","TEMP"],["DISCHARGE"]]
-                numeric_value: [[null,158.60132,null,null,91.4,100,84.4,100.3,90.1,100.1],[null]]
-            code_metadata:
-              pyarrow.Table
-              code: string
-              description: string
-              parent_codes: list<item: string>
-                child 0, item: string
-              ----
-              code: [["EYE_COLOR//BLUE","EYE_COLOR//BROWN","EYE_COLOR//HAZEL","HR"],["TEMP"]]
-              description: [["Blue Eyes. Less common than brown.","Brown Eyes. The most common eye color.","Hazel eyes. These are uncommon","Heart Rate"],["Body Temperature"]]
-              parent_codes: [[null,null,null,["LOINC/8867-4"]],[["LOINC/8310-5"]]]
-            subject_splits:
-              pyarrow.Table
-              subject_id: int64
-              split: string
-              ----
-              subject_id: [[239684,1195293,68729,814703,754281],[1500733]]
-              split: [["train","train","train","train","tuning"],["held_out"]]
+            ...     print(repr(D)) # doctest: +NORMALIZE_WHITESPACE
+             MEDSDataset(data_shards={'train/0': {'subject_id': [0],
+                                                  'time': [datetime.datetime(2025, 1, 1, 12, 0)],
+                                                  'code': ['A'], 'numeric_value': [None]}},
+                         dataset_metadata={'dataset_name': 'test',
+                                           'dataset_version': '0.0.1'},
+                         code_metadata={'code': [], 'description': [], 'parent_codes': []},
+                         subject_splits={'subject_id': [0], 'split': ['train']})
 
         Errors are raised when the YAML is malformed or a non-existent path:
             >>> MEDSDataset.from_yaml(123)
@@ -795,14 +751,22 @@ class MEDSDataset:
             Traceback (most recent call last):
                 ...
             ValueError: Unrecognized key in YAML: foo. Must start with 'data/' or 'metadata/'.
-            >>> MEDSDataset.from_yaml("metadata/foo: [1, 2]")
+            >>> MEDSDataset.from_yaml("metadata/codes.parquet: [1, 2]")
             Traceback (most recent call last):
                 ...
-            ValueError: Expected value for key metadata/foo to be a string, got <class 'list'>
+            ValueError: Expected value for key metadata/codes.parquet to be a string, got <class 'list'>
             >>> MEDSDataset.from_yaml("metadata/foo: bar")
             Traceback (most recent call last):
                 ...
             ValueError: Unrecognized key in YAML: metadata/foo
+            >>> MEDSDataset.from_yaml("metadata/dataset.json: {dataset_name: test, dataset_version: 0.0.1}")
+            Traceback (most recent call last):
+                ...
+            ValueError: No data shards found in YAML
+            >>> MEDSDataset.from_yaml('metadata/dataset.json: "{dataset_name: test, dataset_version: 0.0.1}"')
+            Traceback (most recent call last):
+                ...
+            ValueError: Expected value for key metadata/dataset.json to be a dict, got <class 'str'>
         """  # noqa: E501
         if isinstance(yaml, str) and yaml.endswith(".yaml"):
             logger.debug(f"Inferring yaml {yaml} is a file path as it ends with '.yaml'")
@@ -828,7 +792,7 @@ class MEDSDataset:
             key_parts = key.split("/")
             if len(key_parts) < 2 or key_parts[0] not in {"data", "metadata"}:
                 raise ValueError(f"Unrecognized key in YAML: {key}. Must start with 'data/' or 'metadata/'.")
-            if not isinstance(value, str):
+            if not isinstance(value, str) and key != dataset_metadata_filepath:
                 raise ValueError(f"Expected value for key {key} to be a string, got {type(value)}")
 
             root = key_parts[0]
@@ -841,7 +805,10 @@ class MEDSDataset:
             elif key == subject_splits_filepath:
                 subject_splits = cls.parse_csv(value)
             elif key == dataset_metadata_filepath:
-                dataset_metadata = DatasetMetadata(**json.loads(value))
+                if isinstance(value, dict):
+                    dataset_metadata = DatasetMetadata(**value)
+                else:
+                    raise ValueError(f"Expected value for key {key} to be a dict, got {type(value)}")
             else:
                 raise ValueError(f"Unrecognized key in YAML: {key}")
 
