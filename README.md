@@ -1,7 +1,7 @@
 # MEDS Testing Helpers
 
 [![python](https://img.shields.io/badge/-Python_3.10-blue?logo=python&logoColor=white)](https://github.com/pre-commit/pre-commit)
-[![Documentation Status](https://readthedocs.org/projects/meds-testing-helpers/badge/?version=latest)](https://meds-testing-helpers.readthedocs.io/en/stable/?badge=stable)
+[![Documentation Status](https://readthedocs.org/projects/meds-testing-helpers/badge/?version=latest)](https://meds-testing-helpers.readthedocs.io/en/latest/?badge=latest)
 [![tests](https://github.com/Medical-Event-Data-Standard/meds_testing_helpers/actions/workflows/tests.yaml/badge.svg)](https://github.com/Medical-Event-Data-Standard/meds_testing_helpers/actions/workflows/tests.yaml)
 [![codecov](https://codecov.io/gh/Medical-Event-Data-Standard/meds_testing_helpers/branch/main/graph/badge.svg?token=F9NYFEN5FX)](https://codecov.io/gh/Medical-Event-Data-Standard/meds_testing_helpers)
 [![code-quality](https://github.com/Medical-Event-Data-Standard/meds_testing_helpers/actions/workflows/code-quality-main.yaml/badge.svg)](https://github.com/Medical-Event-Data-Standard/meds_testing_helpers/actions/workflows/code-quality-main.yaml)
