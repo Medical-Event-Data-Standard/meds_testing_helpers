@@ -546,13 +546,47 @@ class MEDSDatasetGenerator:
         │ 9          ┆ MEDS_BIRTH ┆ 2001-01-01 00:00:00 ┆ null          │
         │ 9          ┆ dynamic//7 ┆ 2031-01-01 06:36:00 ┆ null          │
         └────────────┴────────────┴─────────────────────┴───────────────┘
+
+    You can omit subject splits:
+        >>> G = MEDSDatasetGenerator(data_generator=data_df_gen, shard_size=3, train_frac=None)
+        >>> dataset = G.sample(10, rng)
+        >>> dataset.subject_splits is None
+        True
+
+    Errors are thrown in various validation settings.
+        >>> MEDSDatasetGenerator(data_generator=data_df_gen, shard_size=0)
+        Traceback (most recent call last):
+            ...
+        ValueError: shard_size must be a positive integer; got 0
+        >>> MEDSDatasetGenerator(data_generator=data_df_gen, train_frac=None, tuning_frac=0.5)
+        Traceback (most recent call last):
+            ...
+        ValueError: If train_frac is None, tuning_frac and held_out_frac must be None.
+        >>> MEDSDatasetGenerator(data_generator=data_df_gen, train_frac=1.1)
+        Traceback (most recent call last):
+            ...
+        ValueError: train_frac must be between 0 and 1; got 1.1
+        >>> MEDSDatasetGenerator(data_generator=data_df_gen, train_frac=0.5, tuning_frac=-0.1)
+        Traceback (most recent call last):
+            ...
+        ValueError: tuning_frac must be between 0 and 1; got -0.1
+        >>> MEDSDatasetGenerator(data_generator=data_df_gen, train_frac=0.5, held_out_frac=-0.1)
+        Traceback (most recent call last):
+            ...
+        ValueError: held_out_frac must be between 0 and 1; got -0.1
+        >>> MEDSDatasetGenerator(
+        ...     data_generator=data_df_gen, train_frac=0.5, held_out_frac=0.5, tuning_frac=0.5
+        ... )
+        Traceback (most recent call last):
+            ...
+        ValueError: The sum of train_frac, tuning_frac, and held_out_frac must be 1. Got 0.5 + 0.5 + 0.5 = 1.5
     """
 
     data_generator: MEDSDataDFGenerator
     shard_size: POSITIVE_INT | None = None
-    train_frac: float | None = 0.8
-    tuning_frac: float | None = None
-    held_out_frac: float | None = None
+    train_frac: PROPORTION | None = 0.8
+    tuning_frac: PROPORTION | None = None
+    held_out_frac: PROPORTION | None = None
     dataset_name: str | None = None
 
     @property
@@ -560,14 +594,14 @@ class MEDSDatasetGenerator:
         return self.train_frac is not None
 
     def __post_init__(self):
-        if self.shard_size is not None and self.shard_size <= 0:
-            raise ValueError(f"shard_size must be positive; got {self.shard_size}")
+        if self.shard_size is not None and not is_POSITIVE_INT(self.shard_size):
+            raise ValueError(f"shard_size must be a positive integer; got {self.shard_size}")
 
         if not self.has_splits:
             if self.tuning_frac is not None or self.held_out_frac is not None:
                 raise ValueError("If train_frac is None, tuning_frac and held_out_frac must be None.")
         else:
-            if self.train_frac < 0 or self.train_frac > 1:
+            if not is_PROPORTION(self.train_frac):
                 raise ValueError(f"train_frac must be between 0 and 1; got {self.train_frac}")
 
             if self.tuning_frac is None and self.held_out_frac is None:
@@ -579,16 +613,16 @@ class MEDSDatasetGenerator:
             elif self.held_out_frac is None:
                 self.held_out_frac = 1 - self.train_frac - self.tuning_frac
 
-            if self.tuning_frac < 0 or self.tuning_frac > 1:
+            if not is_PROPORTION(self.tuning_frac):
                 raise ValueError(f"tuning_frac must be between 0 and 1; got {self.tuning_frac}")
-            if self.held_out_frac < 0 or self.held_out_frac > 1:
+            if not is_PROPORTION(self.held_out_frac):
                 raise ValueError(f"held_out_frac must be between 0 and 1; got {self.held_out_frac}")
 
             if self.train_frac + self.tuning_frac + self.held_out_frac != 1:
                 raise ValueError(
                     "The sum of train_frac, tuning_frac, and held_out_frac must be 1. Got "
                     f"{self.train_frac} + {self.tuning_frac} + {self.held_out_frac} = "
-                    f"{self.train_frac + self.tuning_frac + self.held_out_frac}."
+                    f"{self.train_frac + self.tuning_frac + self.held_out_frac}"
                 )
 
         if self.dataset_name is None:
