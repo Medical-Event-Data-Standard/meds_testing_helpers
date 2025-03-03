@@ -146,7 +146,8 @@ class MEDSDataDFGenerator:
         │ 2          ┆ MEDS_DEATH//3 ┆ 2032-02-12 07:02:59.397283 ┆ null          │
         └────────────┴───────────────┴────────────────────────────┴───────────────┘
 
-    Errors are thrown in various validation settings:
+        Errors are thrown in various validation settings:
+
         >>> MEDSDataDFGenerator(**{**kwargs, "dynamic_vocab_size": 0})
         Traceback (most recent call last):
             ...
@@ -547,13 +548,15 @@ class MEDSDatasetGenerator:
         │ 9          ┆ dynamic//7 ┆ 2031-01-01 06:36:00 ┆ null          │
         └────────────┴────────────┴─────────────────────┴───────────────┘
 
-    You can omit subject splits:
+        You can omit subject splits:
+
         >>> G = MEDSDatasetGenerator(data_generator=data_df_gen, shard_size=3, train_frac=None)
         >>> dataset = G.sample(10, rng)
         >>> dataset.subject_splits is None
         True
 
-    Errors are thrown in various validation settings.
+        Errors are thrown in various validation settings.
+
         >>> MEDSDatasetGenerator(data_generator=data_df_gen, shard_size=0)
         Traceback (most recent call last):
             ...
