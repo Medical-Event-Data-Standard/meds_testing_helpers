@@ -161,6 +161,8 @@ class DatetimeGenerator(Stringified[np.datetime64], DiscreteGenerator):
             np.datetime64('2021-01-01')
             >>> DatetimeGenerator._from_str("2021-01-01 00:00:00")
             np.datetime64('2021-01-01T00:00:00')
+            >>> DatetimeGenerator._from_str("2021-01-01T00:00:00")
+            np.datetime64('2021-01-01T00:00:00')
             >>> DatetimeGenerator._from_str("2021-01-01T00:00:00.000")
             np.datetime64('2021-01-01T00:00:00.000')
             >>> DatetimeGenerator._from_str("1")
@@ -168,7 +170,7 @@ class DatetimeGenerator(Stringified[np.datetime64], DiscreteGenerator):
                 ...
             ValueError: Could not convert '1' to a datetime.
         """
-        formats = ["%Y-%m-%d", "%Y-%m-%d %H:%M:%S", "%Y-%m-%dT%H:%M:%S.%f"]
+        formats = ["%Y-%m-%d", "%Y-%m-%d %H:%M:%S", "%Y-%m-%dT%H:%M:%S", "%Y-%m-%dT%H:%M:%S.%f"]
 
         try:
             for fmt in formats:
