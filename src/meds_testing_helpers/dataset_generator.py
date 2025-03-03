@@ -81,7 +81,7 @@ class MEDSDataDFGenerator:
 
     Examples:
         >>> rng = np.random.default_rng(1)
-        >>> DG = MEDSDataDFGenerator(
+        >>> kwargs = dict(
         ...     birth_datetime_per_subject=DatetimeGenerator(
         ...         [np.datetime64("2001-01-01", "us"), np.datetime64("2002-02-02", "us")]
         ...     ),
@@ -106,7 +106,7 @@ class MEDSDataDFGenerator:
         ...     dynamic_vocab_size=16,
         ...     frac_subjects_with_death=0.5,
         ... )
-        >>> DG.sample(3, rng) # doctest: +NORMALIZE_WHITESPACE
+        >>> MEDSDataDFGenerator(**kwargs).sample(3, rng)
         shape: (31, 4)
         ┌────────────┬─────────────┬────────────────────────────┬───────────────┐
         │ subject_id ┆ code        ┆ time                       ┆ numeric_value │
@@ -125,6 +125,72 @@ class MEDSDataDFGenerator:
         │ 2          ┆ dynamic//9  ┆ 2032-02-02 08:09:01.280550 ┆ null          │
         │ 2          ┆ dynamic//5  ┆ 2032-02-02 08:09:01.280550 ┆ null          │
         └────────────┴─────────────┴────────────────────────────┴───────────────┘
+        >>> DG = MEDSDataDFGenerator(**{**kwargs, "birth_codes_vocab_size": 10, "death_codes_vocab_size": 10})
+        >>> DG.sample(3, rng)
+        shape: (23, 4)
+        ┌────────────┬───────────────┬────────────────────────────┬───────────────┐
+        │ subject_id ┆ code          ┆ time                       ┆ numeric_value │
+        │ ---        ┆ ---           ┆ ---                        ┆ ---           │
+        │ i64        ┆ str           ┆ datetime[μs]               ┆ f64           │
+        ╞════════════╪═══════════════╪════════════════════════════╪═══════════════╡
+        │ 0          ┆ static//2     ┆ null                       ┆ null          │
+        │ 0          ┆ static//3     ┆ null                       ┆ null          │
+        │ 0          ┆ MEDS_BIRTH//4 ┆ 2002-02-02 00:00:00        ┆ null          │
+        │ 0          ┆ dynamic//2    ┆ 2022-02-01 20:24:00        ┆ -0.673302     │
+        │ 0          ┆ dynamic//11   ┆ 2022-02-01 20:24:00        ┆ null          │
+        │ …          ┆ …             ┆ …                          ┆ …             │
+        │ 2          ┆ dynamic//2    ┆ 2032-02-02 06:36:00        ┆ -0.745856     │
+        │ 2          ┆ dynamic//4    ┆ 2032-02-02 07:00:45.528973 ┆ -0.400115     │
+        │ 2          ┆ dynamic//15   ┆ 2032-02-02 07:02:59.397283 ┆ null          │
+        │ 2          ┆ dynamic//10   ┆ 2032-02-02 07:02:59.397283 ┆ null          │
+        │ 2          ┆ MEDS_DEATH//3 ┆ 2032-02-12 07:02:59.397283 ┆ null          │
+        └────────────┴───────────────┴────────────────────────────┴───────────────┘
+
+    Errors are thrown in various validation settings:
+        >>> MEDSDataDFGenerator(**{**kwargs, "dynamic_vocab_size": 0})
+        Traceback (most recent call last):
+            ...
+        ValueError: dynamic_vocab_size must be a positive integer.
+        >>> MEDSDataDFGenerator(**{**kwargs, "static_vocab_size": 0})
+        Traceback (most recent call last):
+            ...
+        ValueError: static_vocab_size must be a positive integer.
+        >>> MEDSDataDFGenerator(**{**kwargs, "frac_subjects_with_death": 1.1})
+        Traceback (most recent call last):
+            ...
+        ValueError: frac_subjects_with_death must be a proportion.
+        >>> MEDSDataDFGenerator(**{**kwargs, "frac_subjects_with_birth": -0.1})
+        Traceback (most recent call last):
+            ...
+        ValueError: frac_subjects_with_birth must be a proportion.
+        >>> MEDSDataDFGenerator(**{**kwargs, "birth_codes_vocab_size": -1})
+        Traceback (most recent call last):
+            ...
+        ValueError: birth_codes_vocab_size must be a non-negative integer.
+        >>> MEDSDataDFGenerator(**{**kwargs, "death_codes_vocab_size": -1})
+        Traceback (most recent call last):
+            ...
+        ValueError: death_codes_vocab_size must be a non-negative integer.
+        >>> MEDSDataDFGenerator(**{
+        ...     **kwargs, "birth_datetime_per_subject": None, "frac_subjects_with_birth": 1
+        ... })
+        Traceback (most recent call last):
+            ...
+        ValueError: If birth_datetime_per_subject is None, frac_subjects_with_birth must be 0.
+        >>> MEDSDataDFGenerator(**{**kwargs, "birth_codes_vocab_size": 0})
+        Traceback (most recent call last):
+            ...
+        ValueError: If there are births, there must be at least one birth code
+        >>> MEDSDataDFGenerator(**{
+        ...     **kwargs, "time_between_data_and_death_per_subject": None, "frac_subjects_with_death": 1
+        ... })
+        Traceback (most recent call last):
+            ...
+        ValueError: If time_between_data_and_death_per_subject is None, frac_subjects_with_death must be 0.
+        >>> MEDSDataDFGenerator(**{**kwargs, "death_codes_vocab_size": 0})
+        Traceback (most recent call last):
+            ...
+        ValueError: If there are deaths, there must be at least one death code
     """
 
     birth_datetime_per_subject: DatetimeGenerator | None
@@ -148,7 +214,7 @@ class MEDSDataDFGenerator:
 
     def __post_init__(self):
         if not is_POSITIVE_INT(self.dynamic_vocab_size):
-            raise ValueError("vocab_size must be a positive integer.")
+            raise ValueError("dynamic_vocab_size must be a positive integer.")
         if not is_POSITIVE_INT(self.static_vocab_size):
             raise ValueError("static_vocab_size must be a positive integer.")
         if not is_PROPORTION(self.frac_subjects_with_death):
@@ -178,13 +244,13 @@ class MEDSDataDFGenerator:
     def birth_codes(self):
         if self.birth_codes_vocab_size == 1:
             return [birth_code]
-        return [f"birth_code//{i}" for i in range(self.birth_codes_vocab_size)]
+        return [f"{birth_code}//{i}" for i in range(self.birth_codes_vocab_size)]
 
     @property
     def death_codes(self):
         if self.death_codes_vocab_size == 1:
             return [death_code]
-        return [f"death_code//{i}" for i in range(self.death_codes_vocab_size)]
+        return [f"{death_code}//{i}" for i in range(self.death_codes_vocab_size)]
 
     @property
     def has_births(self) -> bool:
@@ -231,7 +297,7 @@ class MEDSDataDFGenerator:
         for n, gen in self._subject_specific_gens:
             try:
                 per_subject_samples[n] = gen.rvs(N_subjects, rng)
-            except Exception as e:
+            except Exception as e:  # pragma: no cover
                 raise ValueError(f"Failed to generate {n}") from e
 
         num_events_per_subject = per_subject_samples["num_events"]
