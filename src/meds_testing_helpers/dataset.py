@@ -148,7 +148,8 @@ class MEDSDataset:
         >>> D.shard_fps is None
         True
 
-    Note that code metadata can be inferred to be empty if not provided:
+        Note that code metadata can be inferred to be empty if not provided:
+
         >>> print(MEDSDataset(data_shards=data_shards, dataset_metadata=dataset_metadata))
         MEDSDataset:
         dataset_metadata:
@@ -194,8 +195,9 @@ class MEDSDataset:
           parent_codes: []
         subject_splits: None
 
-    You can save and load datasets from disk in the proper format. Note that equality persists after this
-    operation:
+        You can save and load datasets from disk in the proper format. Note that equality persists after this
+        operation:
+
         >>> import tempfile
         >>> with tempfile.TemporaryDirectory() as tmpdir:
         ...     D2 = D.write(Path(tmpdir))
@@ -248,7 +250,8 @@ class MEDSDataset:
           parent_codes: [[null,null]]
         subject_splits: None
 
-    You can also add subject splits to the dataset:
+        You can also add subject splits to the dataset:
+
         >>> subject_splits = pl.DataFrame({"subject_id": [0, 1], "split": ["train", "held_out"]})
         >>> D = MEDSDataset(
         ...     data_shards=data_shards,
@@ -307,7 +310,8 @@ class MEDSDataset:
           subject_id: [[0,1]]
           split: [["train","held_out"]]
 
-    Equality is determined by the equality of the data, metadata, code metadata, and subject splits:
+        Equality is determined by the equality of the data, metadata, code metadata, and subject splits:
+
         >>> D1 = MEDSDataset(
         ...     data_shards=data_shards,
         ...     dataset_metadata=dataset_metadata,
@@ -374,8 +378,8 @@ class MEDSDataset:
         >>> D1 == D2
         False
 
+        Errors are raised in a number of circumstances:
 
-    Errors are raised in a number of circumstances:
         >>> MEDSDataset()
         Traceback (most recent call last):
             ...
@@ -480,7 +484,8 @@ class MEDSDataset:
             │ 0          ┆ 2025-01-01 12:00:00 ┆ foo  ┆ 1.0           │
             └────────────┴─────────────────────┴──────┴───────────────┘
 
-        Note that schema defaults are sourced from all MEDS schemas:
+            Note that schema defaults are sourced from all MEDS schemas:
+
             >>> MEDSDataset.parse_csv(
             ...     'subject_id,time,code,numeric_value\\n0,"1/1/2025, 12:00:00",foo,1.0',
             ... )
@@ -527,7 +532,8 @@ class MEDSDataset:
             │ 0          ┆ 2025-01-01 12:00:00 ┆ false         │
             └────────────┴─────────────────────┴───────────────┘
 
-        Note that columns are not verified to come from a single MEDS schema:
+            Note that columns are not verified to come from a single MEDS schema:
+
             >>> MEDSDataset.parse_csv(
             ...     'subject_id,prediction_time,split\\n0,"1/1/2025, 12:00:00",train',
             ... )
@@ -540,7 +546,8 @@ class MEDSDataset:
             │ 0          ┆ 2025-01-01 12:00:00 ┆ train │
             └────────────┴─────────────────────┴───────┘
 
-        Columns from MEDS schemas can also be overwritten with the schema updates keyword arguments:
+            Columns from MEDS schemas can also be overwritten with the schema updates keyword arguments:
+
             >>> MEDSDataset.parse_csv(
             ...     'subject_id,prediction_time,parent_codes\\n0,"1/1/2025, 12:00:00",train',
             ...     subject_id=pl.String, prediction_time=pl.String, parent_codes=pl.String
@@ -554,7 +561,8 @@ class MEDSDataset:
             │ 0          ┆ 1/1/2025, 12:00:00 ┆ train        │
             └────────────┴────────────────────┴──────────────┘
 
-        Errors are raised when the schema is incomplete, inaccurate, or the CSV is malformed:
+            Errors are raised when the schema is incomplete, inaccurate, or the CSV is malformed:
+
             >>> MEDSDataset.parse_csv(
             ...     'subject_id,time,code_2,numeric_value\\n0,"1/1/2025, 12:00:00",foo,1.0',
             ... )
@@ -641,7 +649,6 @@ class MEDSDataset:
             If no dataset metadata is specified, a default dataset metadata object will be created.
 
         Examples:
-        A more complex yaml file example from the static examples:
             >>> from meds_testing_helpers.static_sample_data import SIMPLE_STATIC_SHARDED_BY_SPLIT
             >>> D = MEDSDataset.from_yaml(SIMPLE_STATIC_SHARDED_BY_SPLIT)
             >>> print(D)
@@ -710,7 +717,8 @@ class MEDSDataset:
               subject_id: [[239684,1195293,68729,814703,754281],[1500733]]
               split: [["train","train","train","train","tuning"],["held_out"]]
 
-        You can also read from a filepath directly:
+            You can also read from a filepath directly:
+
             >>> import tempfile
             >>> yaml_lines = [
             ...    "data/train/0: |-2",
@@ -737,7 +745,8 @@ class MEDSDataset:
                          code_metadata={'code': [], 'description': [], 'parent_codes': []},
                          subject_splits={'subject_id': [0], 'split': ['train']})
 
-        Errors are raised when the YAML is malformed or a non-existent path:
+            Errors are raised when the YAML is malformed or a non-existent path:
+
             >>> MEDSDataset.from_yaml(123)
             Traceback (most recent call last):
                 ...
