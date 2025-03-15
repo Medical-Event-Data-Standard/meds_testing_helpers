@@ -23,6 +23,7 @@ from meds import (
     data_subdirectory,
     dataset_metadata_filepath,
     description_field,
+    label_schema,
     numeric_value_field,
     parent_codes_field,
     prediction_time_field,
@@ -33,6 +34,9 @@ from meds import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+SHARDED_DF_T = dict[str, pl.DataFrame]
 
 
 class MEDSDataset:
@@ -421,13 +425,16 @@ class MEDSDataset:
 
     TIME_FIELDS = {time_field, prediction_time_field}
 
+    TASK_LABELS_SUBDIR = "task_labels"
+
     def __init__(
         self,
         root_dir: Path | None = None,
-        data_shards: dict[str, pl.DataFrame] | None = None,
+        data_shards: SHARDED_DF_T | None = None,
         dataset_metadata: DatasetMetadata | None = None,
         code_metadata: pl.DataFrame | None = None,
         subject_splits: pl.DataFrame | None = None,
+        task_labels: dict[str, SHARDED_DF_T] | None = None,
     ):
         if root_dir is None:
             if data_shards is None:
@@ -446,6 +453,7 @@ class MEDSDataset:
         self.dataset_metadata = dataset_metadata
         self.code_metadata = code_metadata
         self.subject_splits = subject_splits
+        self.task_labels = task_labels
 
         # These will throw errors if the data is malformed.
         self.data_shards
@@ -745,6 +753,14 @@ class MEDSDataset:
                          code_metadata={'code': [], 'description': [], 'parent_codes': []},
                          subject_splits={'subject_id': [0], 'split': ['train']})
 
+            Though task labels are not formalized in MEDS (in terms of storage on disk; see
+            https://github.com/Medical-Event-Data-Standard/meds/issues/75 for more information), you can also
+            track a collection of sharded task labels by task name in this class:
+
+            >>> from meds_testing_helpers.static_sample_data import SIMPLE_STATIC_SHARDED_BY_SPLIT_WITH_TASKS
+            >>> D = MEDSDataset.from_yaml(SIMPLE_STATIC_SHARDED_BY_SPLIT_WITH_TASKS)
+            >>> print(D)
+
             Errors are raised when the YAML is malformed or a non-existent path:
 
             >>> MEDSDataset.from_yaml(123)
@@ -797,16 +813,24 @@ class MEDSDataset:
         code_metadata = None
         subject_splits = None
         dataset_metadata = DatasetMetadata()
+        task_labels = None
         for key, value in data.items():
             key_parts = key.split("/")
-            if len(key_parts) < 2 or key_parts[0] not in {"data", "metadata"}:
+
+            if key == cls.TASK_LABELS_SUBDIR:
+                pass
+            elif len(key_parts) < 2 or key_parts[0] not in {data_subdirectory, "metadata"}:
                 raise ValueError(f"Unrecognized key in YAML: {key}. Must start with 'data/' or 'metadata/'.")
-            if not isinstance(value, str) and key != dataset_metadata_filepath:
+
+            if key in {dataset_metadata_filepath, cls.TASK_LABELS_SUBDIR}:
+                if not isinstance(value, dict):
+                    raise ValueError(f"Expected value for key {key} to be a dict, got {type(value)}")
+            elif not isinstance(value, str):
                 raise ValueError(f"Expected value for key {key} to be a string, got {type(value)}")
 
             root = key_parts[0]
 
-            if root == "data":
+            if root == data_subdirectory:
                 rest = "/".join(key_parts[1:])
                 data_shards[rest.replace(".parquet", "")] = cls.parse_csv(value)
             elif key == code_metadata_filepath:
@@ -814,10 +838,12 @@ class MEDSDataset:
             elif key == subject_splits_filepath:
                 subject_splits = cls.parse_csv(value)
             elif key == dataset_metadata_filepath:
-                if isinstance(value, dict):
-                    dataset_metadata = DatasetMetadata(**value)
-                else:
-                    raise ValueError(f"Expected value for key {key} to be a dict, got {type(value)}")
+                dataset_metadata = DatasetMetadata(**value)
+            elif key == cls.TASK_LABELS_SUBDIR:
+                task_labels = {
+                    task_name: {shard: cls.parse_csv(data) for shard, data in shards.items()}
+                    for task_name, shards in value.items()
+                }
             else:
                 raise ValueError(f"Unrecognized key in YAML: {key}")
 
@@ -829,6 +855,7 @@ class MEDSDataset:
             dataset_metadata=dataset_metadata,
             code_metadata=code_metadata,
             subject_splits=subject_splits,
+            task_labels=task_labels,
         )
 
     @staticmethod
@@ -836,19 +863,27 @@ class MEDSDataset:
         return df.select(schema.names).to_arrow().cast(schema)
 
     @property
+    def dataset_metadata_fp(self) -> Path | None:
+        if self.root_dir is None:
+            return None
+        else:
+            return self.root_dir / dataset_metadata_filepath
+
+    @property
     def dataset_metadata(self) -> DatasetMetadata:
         if self.root_dir is None:
             return self._dataset_metadata
         else:
-            dataset_metadata_fp = self.root_dir / dataset_metadata_filepath
-            return DatasetMetadata(**json.loads(dataset_metadata_fp.read_text()))
+            return DatasetMetadata(**json.loads(self.dataset_metadata_fp.read_text()))
 
     @dataset_metadata.setter
     def dataset_metadata(self, value: DatasetMetadata | None):
         self._dataset_metadata = value
 
-    def _shard_name(self, data_fp: Path) -> str:
-        return data_fp.relative_to(self.root_dir / data_subdirectory).with_suffix("").as_posix()
+    def _shard_name(self, data_fp: Path, root_dir: Path | None = None) -> str:
+        if root_dir is None:
+            root_dir = self.root_dir / data_subdirectory
+        return data_fp.relative_to(root_dir).with_suffix("").as_posix()
 
     @property
     def shard_fps(self) -> list[Path] | None:
@@ -858,7 +893,7 @@ class MEDSDataset:
             return sorted(list((self.root_dir / data_subdirectory).rglob("*.parquet")))
 
     @property
-    def _pl_shards(self) -> dict[str, pl.DataFrame]:
+    def _pl_shards(self) -> SHARDED_DF_T:
         if self._data_shards is None:
             return {self._shard_name(fp): pl.read_parquet(fp, use_pyarrow=True) for fp in self.shard_fps}
         else:
@@ -869,13 +904,20 @@ class MEDSDataset:
         return {shard: self._align_df(df, data_schema()) for shard, df in self._pl_shards.items()}
 
     @data_shards.setter
-    def data_shards(self, value: dict[str, pl.DataFrame] | None):
+    def data_shards(self, value: SHARDED_DF_T | None):
         self._data_shards = value
+
+    @property
+    def code_metadata_fp(self) -> Path | None:
+        if self.root_dir is None:
+            return None
+        else:
+            return self.root_dir / code_metadata_filepath
 
     @property
     def _pl_code_metadata(self) -> pl.DataFrame:
         if self._code_metadata is None:
-            return pl.read_parquet(self.root_dir / code_metadata_filepath, use_pyarrow=True)
+            return pl.read_parquet(self.code_metadata_fp, use_pyarrow=True)
         else:
             return self._code_metadata
 
@@ -888,13 +930,19 @@ class MEDSDataset:
         self._code_metadata = value
 
     @property
+    def subject_splits_fp(self) -> Path | None:
+        if self.root_dir is None:
+            return None
+        else:
+            return self.root_dir / subject_splits_filepath
+
+    @property
     def _pl_subject_splits(self) -> pl.DataFrame:
         if self.root_dir is None:
             return self._subject_splits
 
-        subject_splits_fp = self.root_dir / subject_splits_filepath
-        if subject_splits_fp.exists():
-            return pl.read_parquet(subject_splits_fp, use_pyarrow=True)
+        if self.subject_splits_fp.exists():
+            return pl.read_parquet(self.subject_splits_fp, use_pyarrow=True)
         else:
             return None
 
@@ -908,6 +956,52 @@ class MEDSDataset:
     @subject_splits.setter
     def subject_splits(self, value: pl.DataFrame | None):
         self._subject_splits = value
+
+    @property
+    def task_root_dir(self) -> Path | None:
+        if self.root_dir is None:
+            return None
+        else:
+            return self.root_dir / self.TASK_LABELS_SUBDIR
+
+    @property
+    def task_label_fps(self) -> dict[str, list[Path]] | None:
+        if self.root_dir is None:
+            return None
+
+        if not self.task_root_dir.is_dir():
+            return None
+        else:
+            raise NotImplementedError("Reading/writing task labels to/from disk is not yet supported")
+
+    @property
+    def _pl_task_labels(self) -> dict[str, SHARDED_DF_T] | None:
+        if self.root_dir is None:
+            return self._task_labels
+        elif self.task_label_fps is None:
+            return None
+        else:
+            out = {}
+            for task, shard_fps in self.task_label_fps.items():
+                out[task] = {
+                    self._shard_name(fp, self.task_root_dir / task): pl.read_parquet(fp, use_pyarrow=True)
+                    for fp in shard_fps
+                }
+            return out
+
+    @property
+    def task_labels(self) -> dict[str, pa.Table]:
+        if self._pl_task_labels is None:
+            return None
+
+        return {
+            task_name: {shard: self._align_df(df, label_schema) for shard, df in shards.items()}
+            for task_name, shards in self._pl_task_labels.items()
+        }
+
+    @task_labels.setter
+    def task_labels(self, value: dict[str, SHARDED_DF_T] | None):
+        self._task_labels = value
 
     def write(self, output_dir: Path) -> "MEDSDataset":
         data_dir = output_dir / data_subdirectory
@@ -930,6 +1024,14 @@ class MEDSDataset:
             subject_splits_fp.parent.mkdir(parents=True, exist_ok=True)
             pq.write_table(self.subject_splits, subject_splits_fp)
 
+        if self.task_labels is not None:
+            task_labels_dir = output_dir / self.TASK_LABELS_SUBDIR
+            for task_name, shards in self.task_labels.items():
+                for shard, table in shards.items():
+                    fp = task_labels_dir / task_name / f"{shard}.parquet"
+                    fp.parent.mkdir(parents=True, exist_ok=True)
+                    pq.write_table(table, fp)
+
         return MEDSDataset(root_dir=output_dir)
 
     def __repr__(self) -> str:
@@ -942,6 +1044,11 @@ class MEDSDataset:
             }
             if self.subject_splits is not None:
                 kwargs["subject_splits"] = self._pl_subject_splits.to_dict(as_series=False)
+            if self.task_labels is not None:
+                kwargs["task_labels"] = {
+                    task_name: {shard: df.to_dict(as_series=False) for shard, df in shards.items()}
+                    for task_name, shards in self._pl_task_labels.items()
+                }
             kwargs_str = ", ".join(f"{k}={repr(v)}" for k, v in kwargs.items())
             return f"{cls_name}({kwargs_str})"
         else:
@@ -966,6 +1073,14 @@ class MEDSDataset:
         else:
             lines.append("subject_splits:")
             lines.append("  " + str(self.subject_splits).replace("\n", "\n  "))
+        if self.task_labels is not None:
+            lines.append("task labels:")
+            for task_name, shards in self.task_labels.items():
+                lines.append(f"  * {task_name}:")
+                for shard, table in shards.items():
+                    lines.append(f"    - {shard}:")
+                    lines.append("      " + str(table).replace("\n", "\n      "))
+
         return "\n".join(lines)
 
     def __eq__(self, other: Any) -> bool:
@@ -979,6 +1094,8 @@ class MEDSDataset:
         if self.code_metadata != other.code_metadata:
             return False
         if self.subject_splits != other.subject_splits:
+            return False
+        if self.task_labels != other.task_labels:
             return False
 
         return True
