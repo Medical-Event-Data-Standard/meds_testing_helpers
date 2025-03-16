@@ -313,7 +313,6 @@ class MEDSDataset:
         ...     dataset_metadata=dataset_metadata,
         ...     code_metadata=code_metadata,
         ...     subject_splits=subject_splits,
-        ...     task_labels=task_labels,
         ... )
         >>> print(D)
         MEDSDataset:
@@ -392,25 +391,50 @@ class MEDSDataset:
         ...     },
         ...     schema=MEDSDataset.PL_LABEL_SCHEMA
         ... )
-        >>> task_labels = {
-        ...     "task_A": {},
-        ...     "task_B": {"shard": task_df_empty},
-        ...     "task_C": {"shard": task_df_nonempty},
+        >>> task_labels = { # Format is task_name -> shard -> dataframe
+        ...     "A": {},
+        ...     "B": {"0": task_df_empty},
+        ...     "C": {"0": task_df_nonempty},
         ... }
         >>> D = MEDSDataset(
         ...     data_shards=data_shards,
         ...     dataset_metadata=dataset_metadata,
         ...     code_metadata=code_metadata,
-        ...     subject_splits=subject_splits,
         ...     task_labels=task_labels,
         ... )
-        >>> D.task_names
-        ['task_A', 'task_B', 'task_C']
-        >>> print(D.task_root_dir)
-        None
-        >>> print(D.task_label_fps)
-        None
-
+        >>> D # doctest: +NORMALIZE_WHITESPACE
+        MEDSDataset(data_shards={'0': {'subject_id': [0],
+                                       'time': [0],
+                                       'numeric_value': [None],
+                                       'code': ['A']},
+                                 '1': {'subject_id': [1],
+                                       'time': [0],
+                                       'numeric_value': [1.0],
+                                       'code': ['B']}},
+                    dataset_metadata={'dataset_name': 'test',
+                                      'dataset_version': '0.0.1',
+                                      'etl_name': 'foo',
+                                      'etl_version': '0.0.1',
+                                      'meds_version': '0.3.3',
+                                      'created_at': '1/1/2025',
+                                      'extension_columns': []},
+                    code_metadata={'code': ['A', 'B'],
+                                   'description': ['foo', 'bar'],
+                                   'parent_codes': [None, None]},
+                    task_labels={'A': {},
+                                 'B': {'0': {'subject_id': [],
+                                             'prediction_time': [],
+                                             'boolean_value': [],
+                                             'integer_value': [],
+                                             'float_value': [],
+                                             'categorical_value': []}},
+                                 'C': {'0': {'subject_id': [0, 1],
+                                             'prediction_time': [datetime.datetime(1970, 1, 1, 0, 0),
+                                                                 datetime.datetime(1970, 1, 1, 0, 0, 0, 10)],
+                                             'boolean_value': [True, False],
+                                             'integer_value': [None, None],
+                                             'float_value': [None, None],
+                                             'categorical_value': [None, None]}}})
         >>> print(D)
         MEDSDataset:
         dataset_metadata:
@@ -454,17 +478,11 @@ class MEDSDataset:
           code: [["A","B"]]
           description: [["foo","bar"]]
           parent_codes: [[null,null]]
-        subject_splits:
-          pyarrow.Table
-          subject_id: int64
-          split: string
-          ----
-          subject_id: [[0,1]]
-          split: [["train","held_out"]]
+        subject_splits: None
         task labels:
-          * task_A:
-          * task_B:
-            - shard:
+          * A:
+          * B:
+            - 0:
               pyarrow.Table
               subject_id: int64
               prediction_time: timestamp[us]
@@ -479,8 +497,8 @@ class MEDSDataset:
               integer_value: [[]]
               float_value: [[]]
               categorical_value: []
-          * task_C:
-            - shard:
+          * C:
+            - 0:
               pyarrow.Table
               subject_id: int64
               prediction_time: timestamp[us]
@@ -495,6 +513,15 @@ class MEDSDataset:
               integer_value: [[null,null]]
               float_value: [[null,null]]
               categorical_value: [[null,null]]
+        >>> D.task_names
+        ['A', 'B', 'C']
+
+        Note that as we don't have a root dir, the file path parameters are still `None`
+
+        >>> print(D.task_root_dir)
+        None
+        >>> print(D.task_label_fps)
+        None
 
         Reading/Writing with task labels works identically as without:
 
@@ -548,17 +575,11 @@ class MEDSDataset:
           code: [["A","B"]]
           description: [["foo","bar"]]
           parent_codes: [[null,null]]
-        subject_splits:
-          pyarrow.Table
-          subject_id: int64
-          split: string
-          ----
-          subject_id: [[0,1]]
-          split: [["train","held_out"]]
+        subject_splits: None
         task labels:
-          * task_A:
-          * task_B:
-            - shard:
+          * A:
+          * B:
+            - 0:
               pyarrow.Table
               subject_id: int64
               prediction_time: timestamp[us]
@@ -573,8 +594,8 @@ class MEDSDataset:
               integer_value: [[]]
               float_value: [[]]
               categorical_value: []
-          * task_C:
-            - shard:
+          * C:
+            - 0:
               pyarrow.Table
               subject_id: int64
               prediction_time: timestamp[us]
