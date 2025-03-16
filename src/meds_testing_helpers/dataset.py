@@ -60,6 +60,11 @@ class MEDSDataset:
         subject_splits: The subject splits for the dataset. Optional. Upon access of this attribute, the data
             will be returned as a pyarrow table. Upon specification in the constructor, a polars dataframe is
             expected instead. If not specified for an otherwise valid dataset, `None` will be returned.
+        task_labels: Optionally, you can also include task labels. These are not formally connected to a
+            particular MEDS dataset (in terms of storage on disk; see
+            https://github.com/Medical-Event-Data-Standard/meds/issues/75 for more information), you can also
+            track a collection of sharded task labels by task name in this class. If specified, this should be
+            a dictionary mapping task name to sharded task files, in the proper MEDS label dataframe format.
 
     Examples:
         >>> data_shards = {
@@ -80,11 +85,13 @@ class MEDSDataset:
         ...     "parent_codes": pl.Series([None, None], dtype=pl.List(pl.Utf8)),
         ... })
         >>> subject_splits = None
+        >>> task_labels = None
         >>> D = MEDSDataset(
         ...     data_shards=data_shards,
         ...     dataset_metadata=dataset_metadata,
         ...     code_metadata=code_metadata,
-        ...     subject_splits=subject_splits
+        ...     subject_splits=subject_splits,
+        ...     task_labels=task_labels,
         ... )
         >>> D # doctest: +NORMALIZE_WHITESPACE
         MEDSDataset(data_shards={'0': {'subject_id': [0],
@@ -261,7 +268,8 @@ class MEDSDataset:
         ...     data_shards=data_shards,
         ...     dataset_metadata=dataset_metadata,
         ...     code_metadata=code_metadata,
-        ...     subject_splits=subject_splits
+        ...     subject_splits=subject_splits,
+        ...     task_labels=task_labels,
         ... )
         >>> print(D)
         MEDSDataset:
@@ -314,7 +322,138 @@ class MEDSDataset:
           subject_id: [[0,1]]
           split: [["train","held_out"]]
 
-        Equality is determined by the equality of the data, metadata, code metadata, and subject splits:
+        Note that, when task labels aren't provided, their associated methods return `None`
+        >>> D.task_names is None
+        True
+        >>> D.task_labels is None
+        True
+
+        Here's an example with task labels. Note that, when provided, you can also query task names
+        with a dedicated property (otherwise it is null). Task labels can be empty, or have empty shards:
+
+        >>> task_df_empty = pl.DataFrame(
+        ...     {
+        ...         "subject_id": [],
+        ...         "prediction_time": [],
+        ...         "boolean_value": [],
+        ...         "integer_value": [],
+        ...         "float_value": [],
+        ...         "categorical_value": [],
+        ...     },
+        ...     schema=MEDSDataset.PL_LABEL_SCHEMA
+        ... )
+        >>> task_df_nonempty = pl.DataFrame(
+        ...     {
+        ...         "subject_id": [0, 1],
+        ...         "prediction_time": [0, 10],
+        ...         "boolean_value": [True, False],
+        ...         "integer_value": [None, None],
+        ...         "float_value": [None, None],
+        ...         "categorical_value": [None, None],
+        ...     },
+        ...     schema=MEDSDataset.PL_LABEL_SCHEMA
+        ... )
+        >>> task_labels = {
+        ...     "task_A": {},
+        ...     "task_B": {"shard": task_df_empty},
+        ...     "task_C": {"shard": task_df_nonempty},
+        ... }
+        >>> D = MEDSDataset(
+        ...     data_shards=data_shards,
+        ...     dataset_metadata=dataset_metadata,
+        ...     code_metadata=code_metadata,
+        ...     subject_splits=subject_splits,
+        ...     task_labels=task_labels,
+        ... )
+        >>> D.task_names
+        ['task_A', 'task_B', 'task_C']
+        >>> print(D)
+        MEDSDataset:
+        dataset_metadata:
+          - dataset_name: test
+          - dataset_version: 0.0.1
+          - etl_name: foo
+          - etl_version: 0.0.1
+          - meds_version: 0.3.3
+          - created_at: 1/1/2025
+          - extension_columns: []
+        data_shards:
+          - 0:
+            pyarrow.Table
+            subject_id: int64
+            time: timestamp[us]
+            code: string
+            numeric_value: float
+            ----
+            subject_id: [[0]]
+            time: [[1970-01-01 00:00:00.000000]]
+            code: [["A"]]
+            numeric_value: [[null]]
+          - 1:
+            pyarrow.Table
+            subject_id: int64
+            time: timestamp[us]
+            code: string
+            numeric_value: float
+            ----
+            subject_id: [[1]]
+            time: [[1970-01-01 00:00:00.000000]]
+            code: [["B"]]
+            numeric_value: [[1]]
+        code_metadata:
+          pyarrow.Table
+          code: string
+          description: string
+          parent_codes: list<item: string>
+            child 0, item: string
+          ----
+          code: [["A","B"]]
+          description: [["foo","bar"]]
+          parent_codes: [[null,null]]
+        subject_splits:
+          pyarrow.Table
+          subject_id: int64
+          split: string
+          ----
+          subject_id: [[0,1]]
+          split: [["train","held_out"]]
+        task labels:
+          * task_A:
+          * task_B:
+            - shard:
+              pyarrow.Table
+              subject_id: int64
+              prediction_time: timestamp[us]
+              boolean_value: bool
+              integer_value: int64
+              float_value: double
+              categorical_value: string
+              ----
+              subject_id: [[]]
+              prediction_time: [[]]
+              boolean_value: [[]]
+              integer_value: [[]]
+              float_value: [[]]
+              categorical_value: []
+          * task_C:
+            - shard:
+              pyarrow.Table
+              subject_id: int64
+              prediction_time: timestamp[us]
+              boolean_value: bool
+              integer_value: int64
+              float_value: double
+              categorical_value: string
+              ----
+              subject_id: [[0,1]]
+              prediction_time: [[1970-01-01 00:00:00.000000,1970-01-01 00:00:00.000010]]
+              boolean_value: [[true,false]]
+              integer_value: [[null,null]]
+              float_value: [[null,null]]
+              categorical_value: [[null,null]]
+
+        Equality is determined by the equality of the data, metadata, code metadata, subject splits, and task
+        labels:
 
         >>> D1 = MEDSDataset(
         ...     data_shards=data_shards,
@@ -378,6 +517,15 @@ class MEDSDataset:
         ...     dataset_metadata=dataset_metadata,
         ...     code_metadata=alt_code_metadata,
         ...     subject_splits=subject_splits
+        ... )
+        >>> D1 == D2
+        False
+        >>> D2 = MEDSDataset(
+        ...     data_shards=data_shards,
+        ...     dataset_metadata=dataset_metadata,
+        ...     code_metadata=code_metadata,
+        ...     subject_splits=subject_splits,
+        ...     task_labels=task_labels,
         ... )
         >>> D1 == D2
         False
@@ -857,8 +1005,6 @@ class MEDSDataset:
                   integer_value: [[null,null,null,null,null,null,null,null,null,null],[null]]
                   float_value: [[null,null,null,null,null,null,null,null,null,null],[null]]
                   categorical_value: [[null,null,null,null,null,null,null,null,null,null],[null]]
-            >>> D.task_names
-            ['boolean_value_task']
 
             Errors are raised when the YAML is malformed or a non-existent path:
 
