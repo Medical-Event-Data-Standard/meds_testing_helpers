@@ -52,6 +52,15 @@ data = MEDSDataset.from_yaml(SIMPLE_STATIC_SHARDED_BY_SPLIT)
 data.write(...)
 ```
 
+### Simple Static Dataset with Tasks
+
+You can use the fixture
+[`simple_static_MEDS_with_task`](src/meds_testing_helpers/static_sample_data/simple_static_sharded_by_split_with_tasks.yaml)
+to access a dataset that is identical to the `simple_static_MEDS` dataset, but augmented with a prediction
+task named `boolean_value_task` that has a boolean label. _Note that this formulation of including tasks
+relies on file storage conventions that are not mandated within MEDS; namely that tasks are stored in a
+`task_labels` subdirectory of the raw dataset directory._
+
 ### Generated Datasets (useful for benchmarking)
 
 You can use the fixture `generated_sample_MEDS` to generate a sample dataset that is similar to the static

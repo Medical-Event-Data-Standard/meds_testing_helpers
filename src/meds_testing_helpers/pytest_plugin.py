@@ -7,7 +7,10 @@ from pathlib import Path
 import pytest
 
 from .dataset import MEDSDataset
-from .static_sample_data import SIMPLE_STATIC_SHARDED_BY_SPLIT
+from .static_sample_data import (
+    SIMPLE_STATIC_SHARDED_BY_SPLIT,
+    SIMPLE_STATIC_SHARDED_BY_SPLIT_WITH_TASKS,
+)
 
 
 def pytest_addoption(parser):  # pragma: no cover
@@ -42,6 +45,15 @@ def simple_static_MEDS() -> Path:
     with tempfile.TemporaryDirectory() as data_dir:
         data_dir = Path(data_dir)
         data = MEDSDataset.from_yaml(SIMPLE_STATIC_SHARDED_BY_SPLIT)
+        data.write(data_dir)
+        yield data_dir
+
+
+@pytest.fixture(scope=get_MEDS_datasets_scope)
+def simple_static_MEDS_dataset_with_task() -> Path:
+    with tempfile.TemporaryDirectory() as data_dir:
+        data_dir = Path(data_dir)
+        data = MEDSDataset.from_yaml(SIMPLE_STATIC_SHARDED_BY_SPLIT_WITH_TASKS)
         data.write(data_dir)
         yield data_dir
 
