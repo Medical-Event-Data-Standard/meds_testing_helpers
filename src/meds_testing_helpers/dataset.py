@@ -156,8 +156,8 @@ class MEDSDataset:
           description: [["foo","bar"]]
           parent_codes: [[null,null]]
         subject_splits: None
-        >>> D.shard_fps is None
-        True
+        >>> print(D.shard_fps)
+        None
 
         Note that code metadata can be inferred to be empty if not provided:
 
@@ -206,20 +206,34 @@ class MEDSDataset:
           parent_codes: []
         subject_splits: None
 
-        Note that, when neither task labels nor a root directory are provided, their associated methods return
-        `None`
+        Note that when no task labels are provided, their properties are `None`:
 
-        >>> D.task_names is None
-        True
-        >>> D.task_labels is None
-        True
-        >>> D.task_root_dir is None
-        True
-        >>> D.task_label_fps is None
-        True
+        >>> print(D.task_names)
+        None
+        >>> print(D.task_labels)
+        None
+
+        There are also a collection of filepath related properties that are `None` when the root directory is
+        not set:
+
+        >>> print(D.task_root_dir)
+        None
+        >>> print(D.task_names_fp)
+        None
+        >>> print(D.task_label_fps)
+        None
+        >>> print(D.dataset_metadata_fp)
+        None
+        >>> print(D.code_metadata_fp)
+        None
+        >>> print(D.subject_splits_fp)
+        None
+        >>> print(D.shard_fps)
+        None
 
         You can save and load datasets from disk in the proper format. Note that equality persists after this
-        operation:
+        operation. Note that, when existent, filepath variables are then set as well. But, those parameters
+        that depend on files existing when they don't may still be None
 
         >>> import tempfile
         >>> with tempfile.TemporaryDirectory() as tmpdir:
@@ -227,6 +241,15 @@ class MEDSDataset:
         ...     assert D == D2
         ...     print(f"repr: {repr(D2).replace(tmpdir, '...')}")
         ...     print(f"str: {str(D2).replace(tmpdir, '...')}")
+        ...     print("|")
+        ...     print("Filepaths:")
+        ...     print(f"  task_root_dir: {str(D2.task_root_dir).replace(tmpdir, '...')}")
+        ...     print(f"  task_names_fp: {str(D2.task_names_fp).replace(tmpdir, '...')}")
+        ...     print(f"  dataset_metadata_fp: {str(D2.dataset_metadata_fp).replace(tmpdir, '...')}")
+        ...     print(f"  code_metadata_fp: {str(D2.code_metadata_fp).replace(tmpdir, '...')}")
+        ...     print(f"  subject_splits_fp: {str(D2.subject_splits_fp).replace(tmpdir, '...')}")
+        ...     print(f"  shard_fps: {str(D2.shard_fps).replace(tmpdir, '...')}")
+        ...     print(f"  task_label_fps: {D2.task_label_fps}")
         repr: MEDSDataset(root_dir=PosixPath('...'))
         str: MEDSDataset:
         stored in root_dir: ...
@@ -272,17 +295,15 @@ class MEDSDataset:
           description: [["foo","bar"]]
           parent_codes: [[null,null]]
         subject_splits: None
-
-        Note that the task labels root dir and names filepath variables are now set:
-
-        >>> print(D2.task_root_dir)
-        /tmp/tmp.../task_labels
-        >>> print(D2.task_names_fp)
-        /tmp/tmp.../task_labels/.task_names.json
-
-        But the task filepaths are still None as the task root dir does not exist:
-        >>> D2.task_label_fps is None
-        True
+        |
+        Filepaths:
+          task_root_dir: .../task_labels
+          task_names_fp: .../task_labels/.task_names.json
+          dataset_metadata_fp: .../metadata/dataset.json
+          code_metadata_fp: .../metadata/codes.parquet
+          subject_splits_fp: .../metadata/subject_splits.parquet
+          shard_fps: [PosixPath('.../data/0.parquet'), PosixPath('.../data/1.parquet')]
+          task_label_fps: None
 
         You can also add subject splits to the dataset:
 
@@ -385,10 +406,10 @@ class MEDSDataset:
         ... )
         >>> D.task_names
         ['task_A', 'task_B', 'task_C']
-        >>> D.task_root_dir is None
-        True
-        >>> D.task_label_fps is None
-        True
+        >>> print(D.task_root_dir)
+        None
+        >>> print(D.task_label_fps)
+        None
 
         >>> print(D)
         MEDSDataset:
