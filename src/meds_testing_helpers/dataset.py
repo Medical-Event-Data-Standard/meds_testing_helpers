@@ -206,6 +206,18 @@ class MEDSDataset:
           parent_codes: []
         subject_splits: None
 
+        Note that, when neither task labels nor a root directory are provided, their associated methods return
+        `None`
+
+        >>> D.task_names is None
+        True
+        >>> D.task_labels is None
+        True
+        >>> D.task_root_dir is None
+        True
+        >>> D.task_label_fps is None
+        True
+
         You can save and load datasets from disk in the proper format. Note that equality persists after this
         operation:
 
@@ -260,6 +272,17 @@ class MEDSDataset:
           description: [["foo","bar"]]
           parent_codes: [[null,null]]
         subject_splits: None
+
+        Note that the task labels root dir and names filepath variables are now set:
+
+        >>> print(D2.task_root_dir)
+        /tmp/tmp.../task_labels
+        >>> print(D2.task_names_fp)
+        /tmp/tmp.../task_labels/.task_names.json
+
+        But the task filepaths are still None as the task root dir does not exist:
+        >>> D2.task_label_fps is None
+        True
 
         You can also add subject splits to the dataset:
 
@@ -322,14 +345,9 @@ class MEDSDataset:
           subject_id: [[0,1]]
           split: [["train","held_out"]]
 
-        Note that, when task labels aren't provided, their associated methods return `None`
-        >>> D.task_names is None
-        True
-        >>> D.task_labels is None
-        True
-
         Here's an example with task labels. Note that, when provided, you can also query task names
-        with a dedicated property (otherwise it is null). Task labels can be empty, or have empty shards:
+        with a dedicated property (otherwise it is null). Task labels can be empty, or have empty shards. Note
+        that root-dir related task properties can still be None even if tasks are set.
 
         >>> task_df_empty = pl.DataFrame(
         ...     {
@@ -367,8 +385,107 @@ class MEDSDataset:
         ... )
         >>> D.task_names
         ['task_A', 'task_B', 'task_C']
+        >>> D.task_root_dir is None
+        True
+        >>> D.task_label_fps is None
+        True
+
         >>> print(D)
         MEDSDataset:
+        dataset_metadata:
+          - dataset_name: test
+          - dataset_version: 0.0.1
+          - etl_name: foo
+          - etl_version: 0.0.1
+          - meds_version: 0.3.3
+          - created_at: 1/1/2025
+          - extension_columns: []
+        data_shards:
+          - 0:
+            pyarrow.Table
+            subject_id: int64
+            time: timestamp[us]
+            code: string
+            numeric_value: float
+            ----
+            subject_id: [[0]]
+            time: [[1970-01-01 00:00:00.000000]]
+            code: [["A"]]
+            numeric_value: [[null]]
+          - 1:
+            pyarrow.Table
+            subject_id: int64
+            time: timestamp[us]
+            code: string
+            numeric_value: float
+            ----
+            subject_id: [[1]]
+            time: [[1970-01-01 00:00:00.000000]]
+            code: [["B"]]
+            numeric_value: [[1]]
+        code_metadata:
+          pyarrow.Table
+          code: string
+          description: string
+          parent_codes: list<item: string>
+            child 0, item: string
+          ----
+          code: [["A","B"]]
+          description: [["foo","bar"]]
+          parent_codes: [[null,null]]
+        subject_splits:
+          pyarrow.Table
+          subject_id: int64
+          split: string
+          ----
+          subject_id: [[0,1]]
+          split: [["train","held_out"]]
+        task labels:
+          * task_A:
+          * task_B:
+            - shard:
+              pyarrow.Table
+              subject_id: int64
+              prediction_time: timestamp[us]
+              boolean_value: bool
+              integer_value: int64
+              float_value: double
+              categorical_value: string
+              ----
+              subject_id: [[]]
+              prediction_time: [[]]
+              boolean_value: [[]]
+              integer_value: [[]]
+              float_value: [[]]
+              categorical_value: []
+          * task_C:
+            - shard:
+              pyarrow.Table
+              subject_id: int64
+              prediction_time: timestamp[us]
+              boolean_value: bool
+              integer_value: int64
+              float_value: double
+              categorical_value: string
+              ----
+              subject_id: [[0,1]]
+              prediction_time: [[1970-01-01 00:00:00.000000,1970-01-01 00:00:00.000010]]
+              boolean_value: [[true,false]]
+              integer_value: [[null,null]]
+              float_value: [[null,null]]
+              categorical_value: [[null,null]]
+
+        Reading/Writing with task labels works identically as without:
+
+        >>> import tempfile
+        >>> with tempfile.TemporaryDirectory() as tmpdir:
+        ...     D2 = D.write(Path(tmpdir))
+        ...     assert D == D2
+        ...     print(f"repr: {repr(D2).replace(tmpdir, '...')}")
+        ...     print(f"str: {str(D2).replace(tmpdir, '...')}")
+        repr: MEDSDataset(root_dir=PosixPath('...'))
+        str: MEDSDataset:
+        stored in root_dir: ...
         dataset_metadata:
           - dataset_name: test
           - dataset_version: 0.0.1
