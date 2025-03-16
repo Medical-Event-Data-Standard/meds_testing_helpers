@@ -426,6 +426,7 @@ class MEDSDataset:
     TIME_FIELDS = {time_field, prediction_time_field}
 
     TASK_LABELS_SUBDIR = "task_labels"
+    TASK_NAMES_FN = ".task_names.json"
 
     def __init__(
         self,
@@ -856,6 +857,8 @@ class MEDSDataset:
                   integer_value: [[null,null,null,null,null,null,null,null,null,null],[null]]
                   float_value: [[null,null,null,null,null,null,null,null,null,null],[null]]
                   categorical_value: [[null,null,null,null,null,null,null,null,null,null],[null]]
+            >>> D.task_names
+            ['boolean_value_task']
 
             Errors are raised when the YAML is malformed or a non-existent path:
 
@@ -1061,6 +1064,13 @@ class MEDSDataset:
             return self.root_dir / self.TASK_LABELS_SUBDIR
 
     @property
+    def task_names_fp(self) -> Path | None:
+        if self.task_root_dir is None:
+            return None
+        else:
+            return self.task_root_dir / self.TASK_NAMES_FN
+
+    @property
     def task_label_fps(self) -> dict[str, list[Path]] | None:
         if self.root_dir is None:
             return None
@@ -1068,7 +1078,12 @@ class MEDSDataset:
         if not self.task_root_dir.is_dir():
             return None
         else:
-            raise NotImplementedError("Reading/writing task labels to/from disk is not yet supported")
+            out = {}
+            task_names = json.loads(self.task_names_fp.read_text())
+            for task in task_names:
+                task_dir = self.task_root_dir / task
+                out[task] = sorted(list(task_dir.rglob("*.parquet")))
+            return out
 
     @property
     def _pl_task_labels(self) -> dict[str, SHARDED_DF_T] | None:
@@ -1099,6 +1114,13 @@ class MEDSDataset:
     def task_labels(self, value: dict[str, SHARDED_DF_T] | None):
         self._task_labels = value
 
+    @property
+    def task_names(self) -> list[str] | None:
+        if self.task_labels is None:
+            return None
+        else:
+            return list(self.task_labels.keys())
+
     def write(self, output_dir: Path) -> "MEDSDataset":
         data_dir = output_dir / data_subdirectory
 
@@ -1120,8 +1142,13 @@ class MEDSDataset:
             subject_splits_fp.parent.mkdir(parents=True, exist_ok=True)
             pq.write_table(self.subject_splits, subject_splits_fp)
 
-        if self.task_labels is not None:
+        if self.task_labels:
             task_labels_dir = output_dir / self.TASK_LABELS_SUBDIR
+            task_labels_dir.mkdir(exist_ok=True, parents=True)
+
+            task_names_fp = task_labels_dir / self.TASK_NAMES_FN
+            task_names_fp.write_text(json.dumps(self.task_names))
+
             for task_name, shards in self.task_labels.items():
                 for shard, table in shards.items():
                     fp = task_labels_dir / task_name / f"{shard}.parquet"
