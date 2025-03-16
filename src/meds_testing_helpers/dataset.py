@@ -23,6 +23,7 @@ from meds import (
     data_subdirectory,
     dataset_metadata_filepath,
     description_field,
+    label_schema,
     numeric_value_field,
     parent_codes_field,
     prediction_time_field,
@@ -33,6 +34,9 @@ from meds import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+SHARDED_DF_T = dict[str, pl.DataFrame]
 
 
 class MEDSDataset:
@@ -56,6 +60,11 @@ class MEDSDataset:
         subject_splits: The subject splits for the dataset. Optional. Upon access of this attribute, the data
             will be returned as a pyarrow table. Upon specification in the constructor, a polars dataframe is
             expected instead. If not specified for an otherwise valid dataset, `None` will be returned.
+        task_labels: Optionally, you can also include task labels. These are not formally connected to a
+            particular MEDS dataset (in terms of storage on disk; see
+            https://github.com/Medical-Event-Data-Standard/meds/issues/75 for more information), you can also
+            track a collection of sharded task labels by task name in this class. If specified, this should be
+            a dictionary mapping task name to sharded task files, in the proper MEDS label dataframe format.
 
     Examples:
         >>> data_shards = {
@@ -76,11 +85,13 @@ class MEDSDataset:
         ...     "parent_codes": pl.Series([None, None], dtype=pl.List(pl.Utf8)),
         ... })
         >>> subject_splits = None
+        >>> task_labels = None
         >>> D = MEDSDataset(
         ...     data_shards=data_shards,
         ...     dataset_metadata=dataset_metadata,
         ...     code_metadata=code_metadata,
-        ...     subject_splits=subject_splits
+        ...     subject_splits=subject_splits,
+        ...     task_labels=task_labels,
         ... )
         >>> D # doctest: +NORMALIZE_WHITESPACE
         MEDSDataset(data_shards={'0': {'subject_id': [0],
@@ -145,8 +156,8 @@ class MEDSDataset:
           description: [["foo","bar"]]
           parent_codes: [[null,null]]
         subject_splits: None
-        >>> D.shard_fps is None
-        True
+        >>> print(D.shard_fps)
+        None
 
         Note that code metadata can be inferred to be empty if not provided:
 
@@ -195,8 +206,34 @@ class MEDSDataset:
           parent_codes: []
         subject_splits: None
 
+        Note that when no task labels are provided, their properties are `None`:
+
+        >>> print(D.task_names)
+        None
+        >>> print(D.task_labels)
+        None
+
+        There are also a collection of filepath related properties that are `None` when the root directory is
+        not set:
+
+        >>> print(D.task_root_dir)
+        None
+        >>> print(D.task_names_fp)
+        None
+        >>> print(D.task_label_fps)
+        None
+        >>> print(D.dataset_metadata_fp)
+        None
+        >>> print(D.code_metadata_fp)
+        None
+        >>> print(D.subject_splits_fp)
+        None
+        >>> print(D.shard_fps)
+        None
+
         You can save and load datasets from disk in the proper format. Note that equality persists after this
-        operation:
+        operation. Note that, when existent, filepath variables are then set as well. But, those parameters
+        that depend on files existing when they don't may still be None
 
         >>> import tempfile
         >>> with tempfile.TemporaryDirectory() as tmpdir:
@@ -204,6 +241,15 @@ class MEDSDataset:
         ...     assert D == D2
         ...     print(f"repr: {repr(D2).replace(tmpdir, '...')}")
         ...     print(f"str: {str(D2).replace(tmpdir, '...')}")
+        ...     print("|")
+        ...     print("Filepaths:")
+        ...     print(f"  task_root_dir: {str(D2.task_root_dir).replace(tmpdir, '...')}")
+        ...     print(f"  task_names_fp: {str(D2.task_names_fp).replace(tmpdir, '...')}")
+        ...     print(f"  dataset_metadata_fp: {str(D2.dataset_metadata_fp).replace(tmpdir, '...')}")
+        ...     print(f"  code_metadata_fp: {str(D2.code_metadata_fp).replace(tmpdir, '...')}")
+        ...     print(f"  subject_splits_fp: {str(D2.subject_splits_fp).replace(tmpdir, '...')}")
+        ...     print(f"  shard_fps: {str(D2.shard_fps).replace(tmpdir, '...')}")
+        ...     print(f"  task_label_fps: {D2.task_label_fps}")
         repr: MEDSDataset(root_dir=PosixPath('...'))
         str: MEDSDataset:
         stored in root_dir: ...
@@ -249,6 +295,15 @@ class MEDSDataset:
           description: [["foo","bar"]]
           parent_codes: [[null,null]]
         subject_splits: None
+        |
+        Filepaths:
+          task_root_dir: .../task_labels
+          task_names_fp: .../task_labels/.task_names.json
+          dataset_metadata_fp: .../metadata/dataset.json
+          code_metadata_fp: .../metadata/codes.parquet
+          subject_splits_fp: .../metadata/subject_splits.parquet
+          shard_fps: [PosixPath('.../data/0.parquet'), PosixPath('.../data/1.parquet')]
+          task_label_fps: None
 
         You can also add subject splits to the dataset:
 
@@ -257,7 +312,7 @@ class MEDSDataset:
         ...     data_shards=data_shards,
         ...     dataset_metadata=dataset_metadata,
         ...     code_metadata=code_metadata,
-        ...     subject_splits=subject_splits
+        ...     subject_splits=subject_splits,
         ... )
         >>> print(D)
         MEDSDataset:
@@ -310,7 +365,254 @@ class MEDSDataset:
           subject_id: [[0,1]]
           split: [["train","held_out"]]
 
-        Equality is determined by the equality of the data, metadata, code metadata, and subject splits:
+        Here's an example with task labels. Note that, when provided, you can also query task names
+        with a dedicated property (otherwise it is null). Task labels can be empty, or have empty shards. Note
+        that root-dir related task properties can still be None even if tasks are set.
+
+        >>> task_df_empty = pl.DataFrame(
+        ...     {
+        ...         "subject_id": [],
+        ...         "prediction_time": [],
+        ...         "boolean_value": [],
+        ...         "integer_value": [],
+        ...         "float_value": [],
+        ...         "categorical_value": [],
+        ...     },
+        ...     schema=MEDSDataset.PL_LABEL_SCHEMA
+        ... )
+        >>> task_df_nonempty = pl.DataFrame(
+        ...     {
+        ...         "subject_id": [0, 1],
+        ...         "prediction_time": [0, 10],
+        ...         "boolean_value": [True, False],
+        ...         "integer_value": [None, None],
+        ...         "float_value": [None, None],
+        ...         "categorical_value": [None, None],
+        ...     },
+        ...     schema=MEDSDataset.PL_LABEL_SCHEMA
+        ... )
+        >>> task_labels = { # Format is task_name -> shard -> dataframe
+        ...     "A": {},
+        ...     "B": {"0": task_df_empty},
+        ...     "C": {"0": task_df_nonempty},
+        ... }
+        >>> D = MEDSDataset(
+        ...     data_shards=data_shards,
+        ...     dataset_metadata=dataset_metadata,
+        ...     code_metadata=code_metadata,
+        ...     task_labels=task_labels,
+        ... )
+        >>> D # doctest: +NORMALIZE_WHITESPACE
+        MEDSDataset(data_shards={'0': {'subject_id': [0],
+                                       'time': [0],
+                                       'numeric_value': [None],
+                                       'code': ['A']},
+                                 '1': {'subject_id': [1],
+                                       'time': [0],
+                                       'numeric_value': [1.0],
+                                       'code': ['B']}},
+                    dataset_metadata={'dataset_name': 'test',
+                                      'dataset_version': '0.0.1',
+                                      'etl_name': 'foo',
+                                      'etl_version': '0.0.1',
+                                      'meds_version': '0.3.3',
+                                      'created_at': '1/1/2025',
+                                      'extension_columns': []},
+                    code_metadata={'code': ['A', 'B'],
+                                   'description': ['foo', 'bar'],
+                                   'parent_codes': [None, None]},
+                    task_labels={'A': {},
+                                 'B': {'0': {'subject_id': [],
+                                             'prediction_time': [],
+                                             'boolean_value': [],
+                                             'integer_value': [],
+                                             'float_value': [],
+                                             'categorical_value': []}},
+                                 'C': {'0': {'subject_id': [0, 1],
+                                             'prediction_time': [datetime.datetime(1970, 1, 1, 0, 0),
+                                                                 datetime.datetime(1970, 1, 1, 0, 0, 0, 10)],
+                                             'boolean_value': [True, False],
+                                             'integer_value': [None, None],
+                                             'float_value': [None, None],
+                                             'categorical_value': [None, None]}}})
+        >>> print(D)
+        MEDSDataset:
+        dataset_metadata:
+          - dataset_name: test
+          - dataset_version: 0.0.1
+          - etl_name: foo
+          - etl_version: 0.0.1
+          - meds_version: 0.3.3
+          - created_at: 1/1/2025
+          - extension_columns: []
+        data_shards:
+          - 0:
+            pyarrow.Table
+            subject_id: int64
+            time: timestamp[us]
+            code: string
+            numeric_value: float
+            ----
+            subject_id: [[0]]
+            time: [[1970-01-01 00:00:00.000000]]
+            code: [["A"]]
+            numeric_value: [[null]]
+          - 1:
+            pyarrow.Table
+            subject_id: int64
+            time: timestamp[us]
+            code: string
+            numeric_value: float
+            ----
+            subject_id: [[1]]
+            time: [[1970-01-01 00:00:00.000000]]
+            code: [["B"]]
+            numeric_value: [[1]]
+        code_metadata:
+          pyarrow.Table
+          code: string
+          description: string
+          parent_codes: list<item: string>
+            child 0, item: string
+          ----
+          code: [["A","B"]]
+          description: [["foo","bar"]]
+          parent_codes: [[null,null]]
+        subject_splits: None
+        task labels:
+          * A:
+          * B:
+            - 0:
+              pyarrow.Table
+              subject_id: int64
+              prediction_time: timestamp[us]
+              boolean_value: bool
+              integer_value: int64
+              float_value: double
+              categorical_value: string
+              ----
+              subject_id: [[]]
+              prediction_time: [[]]
+              boolean_value: [[]]
+              integer_value: [[]]
+              float_value: [[]]
+              categorical_value: []
+          * C:
+            - 0:
+              pyarrow.Table
+              subject_id: int64
+              prediction_time: timestamp[us]
+              boolean_value: bool
+              integer_value: int64
+              float_value: double
+              categorical_value: string
+              ----
+              subject_id: [[0,1]]
+              prediction_time: [[1970-01-01 00:00:00.000000,1970-01-01 00:00:00.000010]]
+              boolean_value: [[true,false]]
+              integer_value: [[null,null]]
+              float_value: [[null,null]]
+              categorical_value: [[null,null]]
+        >>> D.task_names
+        ['A', 'B', 'C']
+
+        Note that as we don't have a root dir, the file path parameters are still `None`
+
+        >>> print(D.task_root_dir)
+        None
+        >>> print(D.task_label_fps)
+        None
+
+        Reading/Writing with task labels works identically as without:
+
+        >>> import tempfile
+        >>> with tempfile.TemporaryDirectory() as tmpdir:
+        ...     D2 = D.write(Path(tmpdir))
+        ...     assert D == D2
+        ...     print(f"repr: {repr(D2).replace(tmpdir, '...')}")
+        ...     print(f"str: {str(D2).replace(tmpdir, '...')}")
+        repr: MEDSDataset(root_dir=PosixPath('...'))
+        str: MEDSDataset:
+        stored in root_dir: ...
+        dataset_metadata:
+          - dataset_name: test
+          - dataset_version: 0.0.1
+          - etl_name: foo
+          - etl_version: 0.0.1
+          - meds_version: 0.3.3
+          - created_at: 1/1/2025
+          - extension_columns: []
+        data_shards:
+          - 0:
+            pyarrow.Table
+            subject_id: int64
+            time: timestamp[us]
+            code: string
+            numeric_value: float
+            ----
+            subject_id: [[0]]
+            time: [[1970-01-01 00:00:00.000000]]
+            code: [["A"]]
+            numeric_value: [[null]]
+          - 1:
+            pyarrow.Table
+            subject_id: int64
+            time: timestamp[us]
+            code: string
+            numeric_value: float
+            ----
+            subject_id: [[1]]
+            time: [[1970-01-01 00:00:00.000000]]
+            code: [["B"]]
+            numeric_value: [[1]]
+        code_metadata:
+          pyarrow.Table
+          code: string
+          description: string
+          parent_codes: list<item: string>
+            child 0, item: string
+          ----
+          code: [["A","B"]]
+          description: [["foo","bar"]]
+          parent_codes: [[null,null]]
+        subject_splits: None
+        task labels:
+          * A:
+          * B:
+            - 0:
+              pyarrow.Table
+              subject_id: int64
+              prediction_time: timestamp[us]
+              boolean_value: bool
+              integer_value: int64
+              float_value: double
+              categorical_value: string
+              ----
+              subject_id: [[]]
+              prediction_time: [[]]
+              boolean_value: [[]]
+              integer_value: [[]]
+              float_value: [[]]
+              categorical_value: []
+          * C:
+            - 0:
+              pyarrow.Table
+              subject_id: int64
+              prediction_time: timestamp[us]
+              boolean_value: bool
+              integer_value: int64
+              float_value: double
+              categorical_value: string
+              ----
+              subject_id: [[0,1]]
+              prediction_time: [[1970-01-01 00:00:00.000000,1970-01-01 00:00:00.000010]]
+              boolean_value: [[true,false]]
+              integer_value: [[null,null]]
+              float_value: [[null,null]]
+              categorical_value: [[null,null]]
+
+        Equality is determined by the equality of the data, metadata, code metadata, subject splits, and task
+        labels:
 
         >>> D1 = MEDSDataset(
         ...     data_shards=data_shards,
@@ -377,6 +679,15 @@ class MEDSDataset:
         ... )
         >>> D1 == D2
         False
+        >>> D2 = MEDSDataset(
+        ...     data_shards=data_shards,
+        ...     dataset_metadata=dataset_metadata,
+        ...     code_metadata=code_metadata,
+        ...     subject_splits=subject_splits,
+        ...     task_labels=task_labels,
+        ... )
+        >>> D1 == D2
+        False
 
         Errors are raised in a number of circumstances:
 
@@ -421,13 +732,17 @@ class MEDSDataset:
 
     TIME_FIELDS = {time_field, prediction_time_field}
 
+    TASK_LABELS_SUBDIR = "task_labels"
+    TASK_NAMES_FN = ".task_names.json"
+
     def __init__(
         self,
         root_dir: Path | None = None,
-        data_shards: dict[str, pl.DataFrame] | None = None,
+        data_shards: SHARDED_DF_T | None = None,
         dataset_metadata: DatasetMetadata | None = None,
         code_metadata: pl.DataFrame | None = None,
         subject_splits: pl.DataFrame | None = None,
+        task_labels: dict[str, SHARDED_DF_T] | None = None,
     ):
         if root_dir is None:
             if data_shards is None:
@@ -446,6 +761,7 @@ class MEDSDataset:
         self.dataset_metadata = dataset_metadata
         self.code_metadata = code_metadata
         self.subject_splits = subject_splits
+        self.task_labels = task_labels
 
         # These will throw errors if the data is malformed.
         self.data_shards
@@ -737,13 +1053,117 @@ class MEDSDataset:
             ...     _ = f.flush()
             ...     D = MEDSDataset.from_yaml(f.name)
             ...     print(repr(D)) # doctest: +NORMALIZE_WHITESPACE
-             MEDSDataset(data_shards={'train/0': {'subject_id': [0],
-                                                  'time': [datetime.datetime(2025, 1, 1, 12, 0)],
-                                                  'code': ['A'], 'numeric_value': [None]}},
-                         dataset_metadata={'dataset_name': 'test',
-                                           'dataset_version': '0.0.1'},
-                         code_metadata={'code': [], 'description': [], 'parent_codes': []},
-                         subject_splits={'subject_id': [0], 'split': ['train']})
+            MEDSDataset(data_shards={'train/0': {'subject_id': [0],
+                                                 'time': [datetime.datetime(2025, 1, 1, 12, 0)],
+                                                 'code': ['A'], 'numeric_value': [None]}},
+                        dataset_metadata={'dataset_name': 'test',
+                                          'dataset_version': '0.0.1'},
+                        code_metadata={'code': [], 'description': [], 'parent_codes': []},
+                        subject_splits={'subject_id': [0], 'split': ['train']})
+
+            Though task labels are not formalized in MEDS (in terms of storage on disk; see
+            https://github.com/Medical-Event-Data-Standard/meds/issues/75 for more information), you can also
+            track a collection of sharded task labels by task name in this class:
+
+            >>> from meds_testing_helpers.static_sample_data import SIMPLE_STATIC_SHARDED_BY_SPLIT_WITH_TASKS
+            >>> D = MEDSDataset.from_yaml(SIMPLE_STATIC_SHARDED_BY_SPLIT_WITH_TASKS)
+            >>> print(D)
+            MEDSDataset:
+            dataset_metadata:
+            data_shards:
+              - train/0:
+                pyarrow.Table
+                subject_id: int64
+                time: timestamp[us]
+                code: string
+                numeric_value: float
+                ----
+                subject_id: [[239684,239684,239684,239684,239684,...,1195293,1195293,1195293,1195293,1195293],[1195293]]
+                time: [[null,null,1980-12-28 00:00:00.000000,2010-05-11 17:41:51.000000,2010-05-11 17:41:51.000000,...,2010-06-20 20:12:31.000000,2010-06-20 20:24:44.000000,2010-06-20 20:24:44.000000,2010-06-20 20:41:33.000000,2010-06-20 20:41:33.000000],[2010-06-20 20:50:04.000000]]
+                code: [["EYE_COLOR//BROWN","HEIGHT","DOB","ADMISSION//CARDIAC","HR",...,"TEMP","HR","TEMP","HR","TEMP"],["DISCHARGE"]]
+                numeric_value: [[null,175.27112,null,null,102.6,...,99.8,107.7,100,107.5,100.4],[null]]
+              - train/1:
+                pyarrow.Table
+                subject_id: int64
+                time: timestamp[us]
+                code: string
+                numeric_value: float
+                ----
+                subject_id: [[68729,68729,68729,68729,68729,...,814703,814703,814703,814703,814703],[814703]]
+                time: [[null,null,1978-03-09 00:00:00.000000,2010-05-26 02:30:56.000000,2010-05-26 02:30:56.000000,...,null,1976-03-28 00:00:00.000000,2010-02-05 05:55:39.000000,2010-02-05 05:55:39.000000,2010-02-05 05:55:39.000000],[2010-02-05 07:02:30.000000]]
+                code: [["EYE_COLOR//HAZEL","HEIGHT","DOB","ADMISSION//PULMONARY","HR",...,"HEIGHT","DOB","ADMISSION//ORTHOPEDIC","HR","TEMP"],["DISCHARGE"]]
+                numeric_value: [[null,160.39531,null,null,86,...,156.4856,null,null,170.2,100.1],[null]]
+              - tuning/0:
+                pyarrow.Table
+                subject_id: int64
+                time: timestamp[us]
+                code: string
+                numeric_value: float
+                ----
+                subject_id: [[754281,754281,754281,754281,754281,754281],[754281]]
+                time: [[null,null,1988-12-19 00:00:00.000000,2010-01-03 06:27:59.000000,2010-01-03 06:27:59.000000,2010-01-03 06:27:59.000000],[2010-01-03 08:22:13.000000]]
+                code: [["EYE_COLOR//BROWN","HEIGHT","DOB","ADMISSION//PULMONARY","HR","TEMP"],["DISCHARGE"]]
+                numeric_value: [[null,166.22261,null,null,142,99.8],[null]]
+              - held_out/0:
+                pyarrow.Table
+                subject_id: int64
+                time: timestamp[us]
+                code: string
+                numeric_value: float
+                ----
+                subject_id: [[1500733,1500733,1500733,1500733,1500733,1500733,1500733,1500733,1500733,1500733],[1500733]]
+                time: [[null,null,1986-07-20 00:00:00.000000,2010-06-03 14:54:38.000000,2010-06-03 14:54:38.000000,2010-06-03 14:54:38.000000,2010-06-03 15:39:49.000000,2010-06-03 15:39:49.000000,2010-06-03 16:20:49.000000,2010-06-03 16:20:49.000000],[2010-06-03 16:44:26.000000]]
+                code: [["EYE_COLOR//BROWN","HEIGHT","DOB","ADMISSION//ORTHOPEDIC","HR","TEMP","HR","TEMP","HR","TEMP"],["DISCHARGE"]]
+                numeric_value: [[null,158.60132,null,null,91.4,100,84.4,100.3,90.1,100.1],[null]]
+            code_metadata:
+              pyarrow.Table
+              code: string
+              description: string
+              parent_codes: list<item: string>
+                child 0, item: string
+              ----
+              code: [["EYE_COLOR//BLUE","EYE_COLOR//BROWN","EYE_COLOR//HAZEL","HR"],["TEMP"]]
+              description: [["Blue Eyes. Less common than brown.","Brown Eyes. The most common eye color.","Hazel eyes. These are uncommon","Heart Rate"],["Body Temperature"]]
+              parent_codes: [[null,null,null,["LOINC/8867-4"]],[["LOINC/8310-5"]]]
+            subject_splits:
+              pyarrow.Table
+              subject_id: int64
+              split: string
+              ----
+              subject_id: [[239684,1195293,68729,814703,754281],[1500733]]
+              split: [["train","train","train","train","tuning"],["held_out"]]
+            task labels:
+              * boolean_value_task:
+                - labels_A.parquet:
+                  pyarrow.Table
+                  subject_id: int64
+                  prediction_time: timestamp[us]
+                  boolean_value: bool
+                  integer_value: int64
+                  float_value: double
+                  categorical_value: string
+                  ----
+                  subject_id: [[239684,239684,239684,1195293,1195293,1195293,68729,68729,68729],[68729]]
+                  prediction_time: [[2010-05-11 18:00:00.000000,2010-05-11 18:30:00.000000,2010-05-11 19:00:00.000000,2010-06-20 19:30:00.000000,2010-06-20 20:00:00.000000,2010-06-20 20:30:00.000000,2010-05-26 03:00:00.000000,2010-05-26 03:30:00.000000,2010-05-26 04:00:00.000000],[2010-05-26 04:30:00.000000]]
+                  boolean_value: [[false,true,true,false,true,true,false,false,true],[true]]
+                  integer_value: [[null,null,null,null,null,null,null,null,null],[null]]
+                  float_value: [[null,null,null,null,null,null,null,null,null],[null]]
+                  categorical_value: [[null,null,null,null,null,null,null,null,null],[null]]
+                - labels_B.parquet:
+                  pyarrow.Table
+                  subject_id: int64
+                  prediction_time: timestamp[us]
+                  boolean_value: bool
+                  integer_value: int64
+                  float_value: double
+                  categorical_value: string
+                  ----
+                  subject_id: [[814703,814703,814703,754281,754281,754281,754281,1500733,1500733,1500733],[1500733]]
+                  prediction_time: [[2010-02-05 06:00:00.000000,2010-02-05 06:30:00.000000,2010-02-05 07:00:00.000000,2010-01-03 06:30:00.000000,2010-01-03 07:00:00.000000,2010-01-03 07:30:00.000000,2010-01-03 08:00:00.000000,2010-06-03 15:00:00.000000,2010-06-03 15:30:00.000000,2010-06-03 16:00:00.000000],[2010-06-03 16:30:00.000000]]
+                  boolean_value: [[false,true,true,false,false,true,true,false,false,true],[true]]
+                  integer_value: [[null,null,null,null,null,null,null,null,null,null],[null]]
+                  float_value: [[null,null,null,null,null,null,null,null,null,null],[null]]
+                  categorical_value: [[null,null,null,null,null,null,null,null,null,null],[null]]
 
             Errors are raised when the YAML is malformed or a non-existent path:
 
@@ -797,16 +1217,24 @@ class MEDSDataset:
         code_metadata = None
         subject_splits = None
         dataset_metadata = DatasetMetadata()
+        task_labels = None
         for key, value in data.items():
             key_parts = key.split("/")
-            if len(key_parts) < 2 or key_parts[0] not in {"data", "metadata"}:
+
+            if key == cls.TASK_LABELS_SUBDIR:
+                pass
+            elif len(key_parts) < 2 or key_parts[0] not in {data_subdirectory, "metadata"}:
                 raise ValueError(f"Unrecognized key in YAML: {key}. Must start with 'data/' or 'metadata/'.")
-            if not isinstance(value, str) and key != dataset_metadata_filepath:
+
+            if key in {dataset_metadata_filepath, cls.TASK_LABELS_SUBDIR}:
+                if not isinstance(value, dict):
+                    raise ValueError(f"Expected value for key {key} to be a dict, got {type(value)}")
+            elif not isinstance(value, str):
                 raise ValueError(f"Expected value for key {key} to be a string, got {type(value)}")
 
             root = key_parts[0]
 
-            if root == "data":
+            if root == data_subdirectory:
                 rest = "/".join(key_parts[1:])
                 data_shards[rest.replace(".parquet", "")] = cls.parse_csv(value)
             elif key == code_metadata_filepath:
@@ -814,10 +1242,12 @@ class MEDSDataset:
             elif key == subject_splits_filepath:
                 subject_splits = cls.parse_csv(value)
             elif key == dataset_metadata_filepath:
-                if isinstance(value, dict):
-                    dataset_metadata = DatasetMetadata(**value)
-                else:
-                    raise ValueError(f"Expected value for key {key} to be a dict, got {type(value)}")
+                dataset_metadata = DatasetMetadata(**value)
+            elif key == cls.TASK_LABELS_SUBDIR:
+                task_labels = {
+                    task_name: {shard: cls.parse_csv(data) for shard, data in shards.items()}
+                    for task_name, shards in value.items()
+                }
             else:
                 raise ValueError(f"Unrecognized key in YAML: {key}")
 
@@ -829,6 +1259,7 @@ class MEDSDataset:
             dataset_metadata=dataset_metadata,
             code_metadata=code_metadata,
             subject_splits=subject_splits,
+            task_labels=task_labels,
         )
 
     @staticmethod
@@ -836,19 +1267,27 @@ class MEDSDataset:
         return df.select(schema.names).to_arrow().cast(schema)
 
     @property
+    def dataset_metadata_fp(self) -> Path | None:
+        if self.root_dir is None:
+            return None
+        else:
+            return self.root_dir / dataset_metadata_filepath
+
+    @property
     def dataset_metadata(self) -> DatasetMetadata:
         if self.root_dir is None:
             return self._dataset_metadata
         else:
-            dataset_metadata_fp = self.root_dir / dataset_metadata_filepath
-            return DatasetMetadata(**json.loads(dataset_metadata_fp.read_text()))
+            return DatasetMetadata(**json.loads(self.dataset_metadata_fp.read_text()))
 
     @dataset_metadata.setter
     def dataset_metadata(self, value: DatasetMetadata | None):
         self._dataset_metadata = value
 
-    def _shard_name(self, data_fp: Path) -> str:
-        return data_fp.relative_to(self.root_dir / data_subdirectory).with_suffix("").as_posix()
+    def _shard_name(self, data_fp: Path, root_dir: Path | None = None) -> str:
+        if root_dir is None:
+            root_dir = self.root_dir / data_subdirectory
+        return data_fp.relative_to(root_dir).with_suffix("").as_posix()
 
     @property
     def shard_fps(self) -> list[Path] | None:
@@ -858,7 +1297,7 @@ class MEDSDataset:
             return sorted(list((self.root_dir / data_subdirectory).rglob("*.parquet")))
 
     @property
-    def _pl_shards(self) -> dict[str, pl.DataFrame]:
+    def _pl_shards(self) -> SHARDED_DF_T:
         if self._data_shards is None:
             return {self._shard_name(fp): pl.read_parquet(fp, use_pyarrow=True) for fp in self.shard_fps}
         else:
@@ -869,13 +1308,20 @@ class MEDSDataset:
         return {shard: self._align_df(df, data_schema()) for shard, df in self._pl_shards.items()}
 
     @data_shards.setter
-    def data_shards(self, value: dict[str, pl.DataFrame] | None):
+    def data_shards(self, value: SHARDED_DF_T | None):
         self._data_shards = value
+
+    @property
+    def code_metadata_fp(self) -> Path | None:
+        if self.root_dir is None:
+            return None
+        else:
+            return self.root_dir / code_metadata_filepath
 
     @property
     def _pl_code_metadata(self) -> pl.DataFrame:
         if self._code_metadata is None:
-            return pl.read_parquet(self.root_dir / code_metadata_filepath, use_pyarrow=True)
+            return pl.read_parquet(self.code_metadata_fp, use_pyarrow=True)
         else:
             return self._code_metadata
 
@@ -888,13 +1334,19 @@ class MEDSDataset:
         self._code_metadata = value
 
     @property
+    def subject_splits_fp(self) -> Path | None:
+        if self.root_dir is None:
+            return None
+        else:
+            return self.root_dir / subject_splits_filepath
+
+    @property
     def _pl_subject_splits(self) -> pl.DataFrame:
         if self.root_dir is None:
             return self._subject_splits
 
-        subject_splits_fp = self.root_dir / subject_splits_filepath
-        if subject_splits_fp.exists():
-            return pl.read_parquet(subject_splits_fp, use_pyarrow=True)
+        if self.subject_splits_fp.exists():
+            return pl.read_parquet(self.subject_splits_fp, use_pyarrow=True)
         else:
             return None
 
@@ -908,6 +1360,71 @@ class MEDSDataset:
     @subject_splits.setter
     def subject_splits(self, value: pl.DataFrame | None):
         self._subject_splits = value
+
+    @property
+    def task_root_dir(self) -> Path | None:
+        if self.root_dir is None:
+            return None
+        else:
+            return self.root_dir / self.TASK_LABELS_SUBDIR
+
+    @property
+    def task_names_fp(self) -> Path | None:
+        if self.task_root_dir is None:
+            return None
+        else:
+            return self.task_root_dir / self.TASK_NAMES_FN
+
+    @property
+    def task_label_fps(self) -> dict[str, list[Path]] | None:
+        if self.root_dir is None:
+            return None
+
+        if not self.task_root_dir.is_dir():
+            return None
+        else:
+            out = {}
+            task_names = json.loads(self.task_names_fp.read_text())
+            for task in task_names:
+                task_dir = self.task_root_dir / task
+                out[task] = sorted(list(task_dir.rglob("*.parquet")))
+            return out
+
+    @property
+    def _pl_task_labels(self) -> dict[str, SHARDED_DF_T] | None:
+        if self.root_dir is None:
+            return self._task_labels
+        elif self.task_label_fps is None:
+            return None
+        else:
+            out = {}
+            for task, shard_fps in self.task_label_fps.items():
+                out[task] = {
+                    self._shard_name(fp, self.task_root_dir / task): pl.read_parquet(fp, use_pyarrow=True)
+                    for fp in shard_fps
+                }
+            return out
+
+    @property
+    def task_labels(self) -> dict[str, pa.Table]:
+        if self._pl_task_labels is None:
+            return None
+
+        return {
+            task_name: {shard: self._align_df(df, label_schema) for shard, df in shards.items()}
+            for task_name, shards in self._pl_task_labels.items()
+        }
+
+    @task_labels.setter
+    def task_labels(self, value: dict[str, SHARDED_DF_T] | None):
+        self._task_labels = value
+
+    @property
+    def task_names(self) -> list[str] | None:
+        if self.task_labels is None:
+            return None
+        else:
+            return list(self.task_labels.keys())
 
     def write(self, output_dir: Path) -> "MEDSDataset":
         data_dir = output_dir / data_subdirectory
@@ -930,6 +1447,19 @@ class MEDSDataset:
             subject_splits_fp.parent.mkdir(parents=True, exist_ok=True)
             pq.write_table(self.subject_splits, subject_splits_fp)
 
+        if self.task_labels:
+            task_labels_dir = output_dir / self.TASK_LABELS_SUBDIR
+            task_labels_dir.mkdir(exist_ok=True, parents=True)
+
+            task_names_fp = task_labels_dir / self.TASK_NAMES_FN
+            task_names_fp.write_text(json.dumps(self.task_names))
+
+            for task_name, shards in self.task_labels.items():
+                for shard, table in shards.items():
+                    fp = task_labels_dir / task_name / f"{shard}.parquet"
+                    fp.parent.mkdir(parents=True, exist_ok=True)
+                    pq.write_table(table, fp)
+
         return MEDSDataset(root_dir=output_dir)
 
     def __repr__(self) -> str:
@@ -942,6 +1472,11 @@ class MEDSDataset:
             }
             if self.subject_splits is not None:
                 kwargs["subject_splits"] = self._pl_subject_splits.to_dict(as_series=False)
+            if self.task_labels is not None:
+                kwargs["task_labels"] = {
+                    task_name: {shard: df.to_dict(as_series=False) for shard, df in shards.items()}
+                    for task_name, shards in self._pl_task_labels.items()
+                }
             kwargs_str = ", ".join(f"{k}={repr(v)}" for k, v in kwargs.items())
             return f"{cls_name}({kwargs_str})"
         else:
@@ -966,6 +1501,14 @@ class MEDSDataset:
         else:
             lines.append("subject_splits:")
             lines.append("  " + str(self.subject_splits).replace("\n", "\n  "))
+        if self.task_labels is not None:
+            lines.append("task labels:")
+            for task_name, shards in self.task_labels.items():
+                lines.append(f"  * {task_name}:")
+                for shard, table in shards.items():
+                    lines.append(f"    - {shard}:")
+                    lines.append("      " + str(table).replace("\n", "\n      "))
+
         return "\n".join(lines)
 
     def __eq__(self, other: Any) -> bool:
@@ -979,6 +1522,8 @@ class MEDSDataset:
         if self.code_metadata != other.code_metadata:
             return False
         if self.subject_splits != other.subject_splits:
+            return False
+        if self.task_labels != other.task_labels:
             return False
 
         return True
