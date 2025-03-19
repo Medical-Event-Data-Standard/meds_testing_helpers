@@ -1,5 +1,6 @@
 # MEDS Testing Helpers
 
+[![PyPI - Version](https://img.shields.io/pypi/v/meds_testing_helpers)](https://pypi.org/project/meds_testing_helpers/)
 [![python](https://img.shields.io/badge/-Python_3.10-blue?logo=python&logoColor=white)](https://github.com/pre-commit/pre-commit)
 [![Documentation Status](https://readthedocs.org/projects/meds-testing-helpers/badge/?version=latest)](https://meds-testing-helpers.readthedocs.io/en/latest/?badge=latest)
 [![tests](https://github.com/Medical-Event-Data-Standard/meds_testing_helpers/actions/workflows/tests.yaml/badge.svg)](https://github.com/Medical-Event-Data-Standard/meds_testing_helpers/actions/workflows/tests.yaml)
