@@ -957,7 +957,7 @@ class MEDSDataset:
         return df.with_columns(**col_updates).select(cols)
 
     @classmethod
-    def from_yaml(cls, yaml: str | Path) -> "MEDSDataset":
+    def from_yaml(cls, yaml: str | Path, **schema_overrides) -> "MEDSDataset":
         """Create a MEDSDataset from a YAML string or file on disk.
 
         Args:
@@ -1247,16 +1247,18 @@ class MEDSDataset:
 
             if root == data_subdirectory:
                 rest = "/".join(key_parts[1:])
-                data_shards[rest.replace(".parquet", "")] = cls.parse_csv(value)
+                data_shards[rest.replace(".parquet", "")] = cls.parse_csv(value, **schema_overrides)
             elif key == code_metadata_filepath:
-                code_metadata = cls.parse_csv(value)
+                code_metadata = cls.parse_csv(value, **schema_overrides)
             elif key == subject_splits_filepath:
-                subject_splits = cls.parse_csv(value)
+                subject_splits = cls.parse_csv(value, **schema_overrides)
             elif key == dataset_metadata_filepath:
-                dataset_metadata = DatasetMetadata(**value)
+                dataset_metadata = DatasetMetadata(**value, **schema_overrides)
             elif key == cls.TASK_LABELS_SUBDIR:
                 task_labels = {
-                    task_name: {shard: cls.parse_csv(data) for shard, data in shards.items()}
+                    task_name: {
+                        shard: cls.parse_csv(data, **schema_overrides) for shard, data in shards.items()
+                    }
                     for task_name, shards in value.items()
                 }
             else:
