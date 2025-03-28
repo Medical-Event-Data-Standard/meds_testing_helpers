@@ -877,14 +877,23 @@ class MEDSDataset:
             │ 0          ┆ 1/1/2025, 12:00:00 ┆ train        │
             └────────────┴────────────────────┴──────────────┘
 
-            Errors are raised when the schema is incomplete, inaccurate, or the CSV is malformed:
+            Columns can also be inferred from the provided CSV, though only for columns not in a dedicated
+            MEDS schema:
 
             >>> MEDSDataset.parse_csv(
             ...     'subject_id,time,code_2,numeric_value\\n0,"1/1/2025, 12:00:00",foo,1.0',
             ... )
-            Traceback (most recent call last):
-                ...
-            ValueError: Missing schema dtype for column: code_2!
+            shape: (1, 4)
+            ┌────────────┬─────────────────────┬────────┬───────────────┐
+            │ subject_id ┆ time                ┆ code_2 ┆ numeric_value │
+            │ ---        ┆ ---                 ┆ ---    ┆ ---           │
+            │ i64        ┆ datetime[μs]        ┆ str    ┆ f32           │
+            ╞════════════╪═════════════════════╪════════╪═══════════════╡
+            │ 0          ┆ 2025-01-01 12:00:00 ┆ foo    ┆ 1.0           │
+            └────────────┴─────────────────────┴────────┴───────────────┘
+
+            Errors are raised when the schema is incomplete, inaccurate, or the CSV is malformed:
+
             >>> MEDSDataset.parse_csv(
             ...     'subject_id,time,code,numeric_value\\n0,"1/1/2025, 12:00:00",foo,foo',
             ... )
@@ -923,7 +932,7 @@ class MEDSDataset:
             elif col in cls.PL_LABEL_SCHEMA:
                 read_schema[col] = cls.PL_LABEL_SCHEMA[col]
             else:
-                raise ValueError(f"Missing schema dtype for column: {col}!")
+                logger.warning(f"Column {col} not found in schema")
 
             if do_retype_time:
                 time_schema[col] = read_schema.pop(col)
@@ -933,7 +942,9 @@ class MEDSDataset:
                 read_schema[col] = pl.String
 
         try:
-            df = pl.read_csv(StringIO(csv), schema={col: read_schema[col] for col in cols})
+            df = pl.read_csv(
+                StringIO(csv), schema_overrides={col: read_schema[col] for col in cols if col in read_schema}
+            )
         except Exception as e:
             raise ValueError(f"Failed to read:\n{csv}\nUnder schema:\n{read_schema}") from e
 
