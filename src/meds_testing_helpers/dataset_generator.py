@@ -1,7 +1,7 @@
 import logging
 import shutil
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 import hydra
@@ -643,7 +643,7 @@ class MEDSDatasetGenerator:
                 )
 
         if self.dataset_name is None:
-            self.dataset_name = f"MEDS_Sample_{datetime.now(tz=UTC).strftime('%Y%m%d_%H%M%S')}"
+            self.dataset_name = f"MEDS_Sample_{datetime.now(tz=timezone.utc).strftime('%Y%m%d_%H%M%S')}"
 
     def sample(self, N_subjects: int, rng: np.random.Generator) -> MEDSDataset:
         n_shards = N_subjects // self.shard_size if self.shard_size is not None else 2
@@ -666,7 +666,7 @@ class MEDSDatasetGenerator:
             etl_name=__package_name__,
             etl_version=__version__,
             meds_version=meds_version,
-            created_at=datetime.now(tz=UTC).isoformat(),
+            created_at=datetime.now(tz=timezone.utc).isoformat(),
             extension_columns=[],
         )
 
