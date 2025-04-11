@@ -7,10 +7,13 @@ from pathlib import Path
 import pytest
 
 from .dataset import MEDSDataset
-from .static_sample_data import SIMPLE_STATIC_SHARDED_BY_SPLIT
+from .static_sample_data import (
+    SIMPLE_STATIC_SHARDED_BY_SPLIT,
+    SIMPLE_STATIC_SHARDED_BY_SPLIT_WITH_TASKS,
+)
 
 
-def pytest_addoption(parser):
+def pytest_addoption(parser):  # pragma: no cover
     parser.addoption(
         "--generated-dataset-N",
         type=int,
@@ -46,6 +49,15 @@ def simple_static_MEDS() -> Path:
         yield data_dir
 
 
+@pytest.fixture(scope=get_MEDS_datasets_scope)
+def simple_static_MEDS_dataset_with_task() -> Path:
+    with tempfile.TemporaryDirectory() as data_dir:
+        data_dir = Path(data_dir)
+        data = MEDSDataset.from_yaml(SIMPLE_STATIC_SHARDED_BY_SPLIT_WITH_TASKS)
+        data.write(data_dir)
+        yield data_dir
+
+
 def generate_MEDS(request, dataset_spec: str) -> Path:
     N = request.config.getoption("--generated-dataset-N")
     seed = request.config.getoption("--generated-dataset-seed")
@@ -69,7 +81,7 @@ def generate_MEDS(request, dataset_spec: str) -> Path:
             f"Command stderr:\n{out.stderr.decode()}"
         )
 
-        if out.returncode != 0:
+        if out.returncode != 0:  # pragma: no cover
             raise RuntimeError(error_str)
 
         yield data_dir

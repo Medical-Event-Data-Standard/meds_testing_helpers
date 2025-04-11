@@ -1,6 +1,8 @@
 # MEDS Testing Helpers
 
+[![PyPI - Version](https://img.shields.io/pypi/v/meds_testing_helpers)](https://pypi.org/project/meds_testing_helpers/)
 [![python](https://img.shields.io/badge/-Python_3.10-blue?logo=python&logoColor=white)](https://github.com/pre-commit/pre-commit)
+[![Documentation Status](https://readthedocs.org/projects/meds-testing-helpers/badge/?version=latest)](https://meds-testing-helpers.readthedocs.io/en/latest/?badge=latest)
 [![tests](https://github.com/Medical-Event-Data-Standard/meds_testing_helpers/actions/workflows/tests.yaml/badge.svg)](https://github.com/Medical-Event-Data-Standard/meds_testing_helpers/actions/workflows/tests.yaml)
 [![codecov](https://codecov.io/gh/Medical-Event-Data-Standard/meds_testing_helpers/branch/main/graph/badge.svg?token=F9NYFEN5FX)](https://codecov.io/gh/Medical-Event-Data-Standard/meds_testing_helpers)
 [![code-quality](https://github.com/Medical-Event-Data-Standard/meds_testing_helpers/actions/workflows/code-quality-main.yaml/badge.svg)](https://github.com/Medical-Event-Data-Standard/meds_testing_helpers/actions/workflows/code-quality-main.yaml)
@@ -50,6 +52,15 @@ from meds_testing_helpers.dataset import MEDSDataset
 data = MEDSDataset.from_yaml(SIMPLE_STATIC_SHARDED_BY_SPLIT)
 data.write(...)
 ```
+
+### Simple Static Dataset with Tasks
+
+You can use the fixture
+[`simple_static_MEDS_with_task`](src/meds_testing_helpers/static_sample_data/simple_static_sharded_by_split_with_tasks.yaml)
+to access a dataset that is identical to the `simple_static_MEDS` dataset, but augmented with a prediction
+task named `boolean_value_task` that has a boolean label. _Note that this formulation of including tasks
+relies on file storage conventions that are not mandated within MEDS; namely that tasks are stored in a
+`task_labels` subdirectory of the raw dataset directory._
 
 ### Generated Datasets (useful for benchmarking)
 
