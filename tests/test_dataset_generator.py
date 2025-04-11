@@ -24,7 +24,10 @@ def test_error_cases():
         output_is_file.touch()
 
         out = subprocess.run(
-            cmd_args + [f"output_dir={str(output_is_file)}"], shell=False, check=False, capture_output=True
+            cmd_args + [f"output_dir={str(output_is_file)}"],
+            shell=False,
+            check=False,
+            capture_output=True,
         )
         assert out.returncode != 0, "Should fail because output is a file"
 

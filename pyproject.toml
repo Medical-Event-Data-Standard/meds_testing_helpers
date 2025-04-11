@@ -22,7 +22,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["pre-commit<4"]
+dev = ["pre-commit<4", "ruff"]
 tests = ["pytest-cov"]
 docs = [
   "mkdocs==1.6.1", "mkdocs-material==9.6.7", "mkdocstrings[python,shell]==0.28.2", "mkdocs-gen-files==0.5.0",
