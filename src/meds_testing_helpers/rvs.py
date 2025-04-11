@@ -247,7 +247,12 @@ class DatetimeGenerator(Stringified[np.datetime64], DiscreteGenerator):
                 ...
             ValueError: Could not convert '1' to a datetime.
         """
-        formats = ["%Y-%m-%d", "%Y-%m-%d %H:%M:%S", "%Y-%m-%dT%H:%M:%S", "%Y-%m-%dT%H:%M:%S.%f"]
+        formats = [
+            "%Y-%m-%d",
+            "%Y-%m-%d %H:%M:%S",
+            "%Y-%m-%dT%H:%M:%S",
+            "%Y-%m-%dT%H:%M:%S.%f",
+        ]
 
         try:
             for fmt in formats:
