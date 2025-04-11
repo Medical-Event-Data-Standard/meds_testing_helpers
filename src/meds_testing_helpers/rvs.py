@@ -1,6 +1,6 @@
 import abc
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any, Generic, TypeVar
 
 import numpy as np
@@ -180,7 +180,7 @@ class DatetimeGenerator(Stringified[np.datetime64], DiscreteGenerator):
         try:
             for fmt in formats:
                 try:
-                    _ = np.datetime64(datetime.strptime(x, fmt))
+                    _ = np.datetime64(datetime.strptime(x, fmt).replace(tzinfo=UTC))
                     return np.datetime64(x)
                 except Exception:
                     pass
