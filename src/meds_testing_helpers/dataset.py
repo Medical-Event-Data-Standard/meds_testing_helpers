@@ -943,7 +943,8 @@ class MEDSDataset:
 
         try:
             df = pl.read_csv(
-                StringIO(csv), schema_overrides={col: read_schema[col] for col in cols if col in read_schema}
+                StringIO(csv),
+                schema_overrides={col: read_schema[col] for col in cols if col in read_schema},
             )
         except Exception as e:
             raise ValueError(f"Failed to read:\n{csv}\nUnder schema:\n{read_schema}") from e
@@ -1234,7 +1235,10 @@ class MEDSDataset:
 
             if key == cls.TASK_LABELS_SUBDIR:
                 pass
-            elif len(key_parts) < 2 or key_parts[0] not in {data_subdirectory, "metadata"}:
+            elif len(key_parts) < 2 or key_parts[0] not in {
+                data_subdirectory,
+                "metadata",
+            }:
                 raise ValueError(f"Unrecognized key in YAML: {key}. Must start with 'data/' or 'metadata/'.")
 
             if key in {dataset_metadata_filepath, cls.TASK_LABELS_SUBDIR}:

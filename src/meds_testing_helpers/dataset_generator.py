@@ -271,13 +271,27 @@ class MEDSDataDFGenerator:
         ]
         if self.has_births:
             out.append(("birth_datetime", self.birth_datetime_per_subject))
-            out.append(("time_between_birth_and_data", self.time_between_birth_and_data_per_subject))
+            out.append(
+                (
+                    "time_between_birth_and_data",
+                    self.time_between_birth_and_data_per_subject,
+                )
+            )
         if self.has_deaths:
-            out.append(("time_between_data_and_death", self.time_between_data_and_death_per_subject))
+            out.append(
+                (
+                    "time_between_data_and_death",
+                    self.time_between_data_and_death_per_subject,
+                )
+            )
         return out
 
     def _sample_code_val(
-        self, size: int, vocab_size: int, value_props: np.ndarray, rng: np.random.Generator
+        self,
+        size: int,
+        vocab_size: int,
+        value_props: np.ndarray,
+        rng: np.random.Generator,
     ) -> tuple:
         codes = rng.choice(vocab_size, size=size)
         value_obs_p = value_props[codes]
