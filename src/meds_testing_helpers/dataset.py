@@ -92,7 +92,7 @@ class MEDSDataset:
         ...     subject_splits=subject_splits,
         ...     task_labels=task_labels,
         ... )
-        >>> D # doctest: +NORMALIZE_WHITESPACE
+        >>> D
         MEDSDataset(data_shards={'0': {'subject_id': [0],
                                        'time': [0],
                                        'numeric_value': [None],
@@ -234,7 +234,6 @@ class MEDSDataset:
         operation. Note that, when existent, filepath variables are then set as well. But, those parameters
         that depend on files existing when they don't may still be None
 
-        >>> import tempfile
         >>> with tempfile.TemporaryDirectory() as tmpdir:
         ...     D2 = D.write(Path(tmpdir))
         ...     assert D == D2
@@ -401,7 +400,7 @@ class MEDSDataset:
         ...     code_metadata=code_metadata,
         ...     task_labels=task_labels,
         ... )
-        >>> D # doctest: +NORMALIZE_WHITESPACE
+        >>> D
         MEDSDataset(data_shards={'0': {'subject_id': [0],
                                        'time': [0],
                                        'numeric_value': [None],
@@ -524,7 +523,6 @@ class MEDSDataset:
 
         Reading/Writing with task labels works identically as without:
 
-        >>> import tempfile
         >>> with tempfile.TemporaryDirectory() as tmpdir:
         ...     D2 = D.write(Path(tmpdir))
         ...     assert D == D2
@@ -1046,7 +1044,6 @@ class MEDSDataset:
 
             You can also read from a filepath directly:
 
-            >>> import tempfile
             >>> yaml_lines = [
             ...    "data/train/0: |-2",
             ...    "  subject_id,time,code,numeric_value",
@@ -1063,7 +1060,7 @@ class MEDSDataset:
             ...         _ = f.write(f"{line}\\n")
             ...     _ = f.flush()
             ...     D = MEDSDataset.from_yaml(f.name)
-            ...     print(repr(D)) # doctest: +NORMALIZE_WHITESPACE
+            ...     print(repr(D))
             MEDSDataset(data_shards={'train/0': {'subject_id': [0],
                                                  'time': [datetime.datetime(2025, 1, 1, 12, 0)],
                                                  'code': ['A'], 'numeric_value': [None]}},
@@ -1071,6 +1068,64 @@ class MEDSDataset:
                                           'dataset_version': '0.0.1'},
                         code_metadata={'code': [], 'description': [], 'parent_codes': []},
                         subject_splits={'subject_id': [0], 'split': ['train']})
+
+            Given code metadata (during pre-processing) can contain more complex structures, you can encode
+            that dataframe not just as a CSV string, but also as a dictionary of columns or list of rows:
+
+            >>> yaml_lines = [
+            ...    "data/train/0: |-2",
+            ...    "  subject_id,time,code,numeric_value",
+            ...    '  0,"1/1/2025, 12:00:00",A,',
+            ...    "metadata/dataset.json:",
+            ...    "  dataset_name: test",
+            ...    "metadata/codes.parquet:",
+            ...    "  - code: A",
+            ...    "    description: foo",
+            ...    "    parent_codes: ['bar', 'baz']",
+            ...    "  - code: G",
+            ...    "    description: bar",
+            ...    "    parent_codes: []",
+            ... ]
+            >>> with tempfile.NamedTemporaryFile("w", suffix=".yaml") as f:
+            ...     for line in yaml_lines:
+            ...         _ = f.write(f"{line}\\n")
+            ...     _ = f.flush()
+            ...     D = MEDSDataset.from_yaml(f.name)
+            ...     print(repr(D))
+            MEDSDataset(data_shards={'train/0': {'subject_id': [0],
+                                                 'time': [datetime.datetime(2025, 1, 1, 12, 0)],
+                                                 'code': ['A'],
+                                                 'numeric_value': [None]}},
+                        dataset_metadata={'dataset_name': 'test'},
+                        code_metadata={'code': ['A', 'G'],
+                                       'description': ['foo', 'bar'],
+                                       'parent_codes': [['bar', 'baz'], []]})
+            >>> yaml_lines = [
+            ...    "data/train/0: |-2",
+            ...    "  subject_id,time,code,numeric_value",
+            ...    '  0,"1/1/2025, 12:00:00",A,',
+            ...    "metadata/dataset.json:",
+            ...    "  dataset_name: test",
+            ...    "metadata/codes.parquet:",
+            ...    "  code: ['A', 'G']",
+            ...    "  description: ['foo', 'bar']",
+            ...    "  parent_codes: [['bar', 'baz'], []]",
+            ... ]
+            >>> with tempfile.NamedTemporaryFile("w", suffix=".yaml") as f:
+            ...     for line in yaml_lines:
+            ...         _ = f.write(f"{line}\\n")
+            ...     _ = f.flush()
+            ...     D = MEDSDataset.from_yaml(f.name)
+            ...     print(repr(D))
+            MEDSDataset(data_shards={'train/0': {'subject_id': [0],
+                                                 'time': [datetime.datetime(2025, 1, 1, 12, 0)],
+                                                 'code': ['A'],
+                                                 'numeric_value': [None]}},
+                        dataset_metadata={'dataset_name': 'test'},
+                        code_metadata={'code': ['A', 'G'],
+                                       'description': ['foo', 'bar'],
+                                       'parent_codes': [['bar', 'baz'], []]})
+
 
             Though task labels are not formalized in MEDS (in terms of storage on disk; see
             https://github.com/Medical-Event-Data-Standard/meds/issues/75 for more information), you can also
@@ -1191,10 +1246,11 @@ class MEDSDataset:
             Traceback (most recent call last):
                 ...
             ValueError: Unrecognized key in YAML: foo. Must start with 'data/' or 'metadata/'.
-            >>> MEDSDataset.from_yaml("metadata/codes.parquet: [1, 2]")
+            >>> MEDSDataset.from_yaml("metadata/codes.parquet: 13")
             Traceback (most recent call last):
                 ...
-            ValueError: Expected value for key metadata/codes.parquet to be a string, got <class 'list'>
+            ValueError: Expected value for key metadata/codes.parquet to be a string, dict, or list, got
+                <class 'int'>
             >>> MEDSDataset.from_yaml("metadata/foo: bar")
             Traceback (most recent call last):
                 ...
@@ -1243,7 +1299,7 @@ class MEDSDataset:
             if key in {dataset_metadata_filepath, cls.TASK_LABELS_SUBDIR}:
                 if not isinstance(value, dict):
                     raise ValueError(f"Expected value for key {key} to be a dict, got {type(value)}")
-            elif not isinstance(value, str):
+            elif key != code_metadata_filepath and not isinstance(value, str):
                 raise ValueError(f"Expected value for key {key} to be a string, got {type(value)}")
 
             root = key_parts[0]
@@ -1252,7 +1308,17 @@ class MEDSDataset:
                 rest = "/".join(key_parts[1:])
                 data_shards[rest.replace(".parquet", "")] = cls.parse_csv(value, **schema_overrides)
             elif key == code_metadata_filepath:
-                code_metadata = cls.parse_csv(value, **schema_overrides)
+                match value:
+                    case str() as csv:
+                        code_metadata = cls.parse_csv(csv, **schema_overrides)
+                    case dict() as cols_dict:
+                        code_metadata = pl.from_dict(cols_dict, schema_overrides=schema_overrides)
+                    case list() as rows:
+                        code_metadata = pl.from_dicts(rows, schema_overrides=schema_overrides)
+                    case _:
+                        raise ValueError(
+                            f"Expected value for key {key} to be a string, dict, or list, got {type(value)}"
+                        )
             elif key == subject_splits_filepath:
                 subject_splits = cls.parse_csv(value, **schema_overrides)
             elif key == dataset_metadata_filepath:

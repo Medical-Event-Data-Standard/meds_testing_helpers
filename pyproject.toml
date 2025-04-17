@@ -46,6 +46,7 @@ addopts = [
   "--doctest-modules",
   "--ignore=docs",
 ]
+doctest_optionflags = ["NORMALIZE_WHITESPACE", "ELLIPSIS"]
 
 [project.entry-points.pytest11]
 meds_testing_helpers = "meds_testing_helpers.pytest_plugin"
