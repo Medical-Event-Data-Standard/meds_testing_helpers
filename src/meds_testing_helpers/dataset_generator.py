@@ -8,16 +8,13 @@ import hydra
 import numpy as np
 import polars as pl
 from meds import (
-    DatasetMetadata,
+    CodeMetadataSchema,
+    DataSchema,
+    DatasetMetadataSchema,
+    SubjectSplitSchema,
     birth_code,
-    code_field,
     death_code,
-    description_field,
     held_out_split,
-    numeric_value_field,
-    parent_codes_field,
-    subject_id_field,
-    time_field,
     train_split,
     tuning_split,
 )
@@ -349,10 +346,10 @@ class MEDSDataDFGenerator:
             )
 
         dataset = {}
-        dataset[subject_id_field] = []
-        dataset[code_field] = []
-        dataset[time_field] = []
-        dataset[numeric_value_field] = []
+        dataset[DataSchema.subject_id_name] = []
+        dataset[DataSchema.code_name] = []
+        dataset[DataSchema.time_name] = []
+        dataset[DataSchema.numeric_value_name] = []
 
         for subject in range(N_subjects):
             subject_samples = {k: v[subject] for k, v in per_subject_samples.items()}
@@ -361,17 +358,17 @@ class MEDSDataDFGenerator:
             static_codes = subject_samples["static_codes"]
             static_values = subject_samples["static_values"]
 
-            dataset[subject_id_field].extend([subject] * num_static_measurements)
-            dataset[time_field].extend([None] * num_static_measurements)
-            dataset[code_field].extend(f"static//{i}" for i in static_codes)
-            dataset[numeric_value_field].extend(static_values)
+            dataset[DataSchema.subject_id_name].extend([subject] * num_static_measurements)
+            dataset[DataSchema.time_name].extend([None] * num_static_measurements)
+            dataset[DataSchema.code_name].extend(f"static//{i}" for i in static_codes)
+            dataset[DataSchema.numeric_value_name].extend(static_values)
 
             if subject_samples.get("birth_code", False):
                 birth_datetime = subject_samples["birth_datetime"].astype("datetime64[us]")
-                dataset[subject_id_field].append(subject)
-                dataset[time_field].append(birth_datetime)
-                dataset[code_field].append(subject_samples["birth_code"])
-                dataset[numeric_value_field].append(None)
+                dataset[DataSchema.subject_id_name].append(subject)
+                dataset[DataSchema.time_name].append(birth_datetime)
+                dataset[DataSchema.code_name].append(subject_samples["birth_code"])
+                dataset[DataSchema.numeric_value_name].append(None)
 
                 event_datetime = birth_datetime + subject_samples["time_between_birth_and_data"].astype(
                     "timedelta64[us]"
@@ -394,22 +391,22 @@ class MEDSDataDFGenerator:
                     rng=rng,
                 )
 
-                dataset[code_field].extend([f"dynamic//{i}" for i in codes])
-                dataset[subject_id_field].extend([subject] * n)
-                dataset[time_field].extend([event_datetime] * n)
-                dataset[numeric_value_field].extend(values)
+                dataset[DataSchema.code_name].extend([f"dynamic//{i}" for i in codes])
+                dataset[DataSchema.subject_id_name].extend([subject] * n)
+                dataset[DataSchema.time_name].extend([event_datetime] * n)
+                dataset[DataSchema.numeric_value_name].extend(values)
 
                 event_datetime += timedelta
 
-            last_event_datetime = dataset[time_field][-1]
+            last_event_datetime = dataset[DataSchema.time_name][-1]
             if subject_samples.get("death_code", False):
                 time_between_data_and_death = subject_samples["time_between_data_and_death"]
-                dataset[subject_id_field].append(subject)
-                dataset[time_field].append(last_event_datetime + time_between_data_and_death)
-                dataset[code_field].append(subject_samples["death_code"])
-                dataset[numeric_value_field].append(None)
+                dataset[DataSchema.subject_id_name].append(subject)
+                dataset[DataSchema.time_name].append(last_event_datetime + time_between_data_and_death)
+                dataset[DataSchema.code_name].append(subject_samples["death_code"])
+                dataset[DataSchema.numeric_value_name].append(None)
 
-        dataset[time_field] = np.array(dataset[time_field], dtype="datetime64[us]")
+        dataset[DataSchema.time_name] = np.array(dataset[DataSchema.time_name], dtype="datetime64[us]")
 
         return pl.DataFrame(dataset)
 
@@ -473,7 +470,7 @@ class MEDSDatasetGenerator:
         dataset_version: 0.0.1
         etl_name: meds_testing_helpers
         etl_version: ...
-        meds_version: 0.3.3
+        meds_version: 0.4.0
         created_at: ...
         extension_columns: []
         >>> dataset._pl_code_metadata # This is always empty for now as these codes are meaningless.
@@ -656,11 +653,11 @@ class MEDSDatasetGenerator:
         total_subjects = 0
         for i, size in enumerate(shard_sizes):
             data_shards[str(i)] = self.data_generator.sample(size, rng).with_columns(
-                (pl.col(subject_id_field) + total_subjects).alias(subject_id_field)
+                (pl.col(DataSchema.subject_id_name) + total_subjects).alias(DataSchema.subject_id_name)
             )
             total_subjects += size
 
-        dataset_metadata = DatasetMetadata(
+        dataset_metadata = DatasetMetadataSchema(
             dataset_name=self.dataset_name,
             dataset_version="0.0.1",
             etl_name=__package_name__,
@@ -672,9 +669,9 @@ class MEDSDatasetGenerator:
 
         code_metadata = pl.DataFrame(
             {
-                code_field: pl.Series([], dtype=pl.Utf8),
-                description_field: pl.Series([], dtype=pl.Utf8),
-                parent_codes_field: pl.Series([], dtype=pl.List(pl.Utf8)),
+                CodeMetadataSchema.code_name: pl.Series([], dtype=pl.Utf8),
+                CodeMetadataSchema.description_name: pl.Series([], dtype=pl.Utf8),
+                CodeMetadataSchema.parent_codes_name: pl.Series([], dtype=pl.List(pl.Utf8)),
             }
         )
 
@@ -688,8 +685,8 @@ class MEDSDatasetGenerator:
             split = [train_split] * N_train + [tuning_split] * N_tuning + [held_out_split] * N_held_out
             subject_splits = pl.DataFrame(
                 {
-                    subject_id_field: pl.Series(subjects, dtype=pl.Int64),
-                    "split": pl.Series(split, dtype=pl.Utf8),
+                    SubjectSplitSchema.subject_id_name: pl.Series(subjects, dtype=pl.Int64),
+                    SubjectSplitSchema.split_name: pl.Series(split, dtype=pl.Utf8),
                 }
             )
         else:

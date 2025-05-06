@@ -8,22 +8,15 @@ import polars as pl
 import pyarrow as pa
 import pyarrow.parquet as pq
 from meds import (
-    DatasetMetadata,
-    code_field,
+    CodeMetadataSchema,
+    DataSchema,
+    DatasetMetadataSchema,
+    LabelSchema,
+    SubjectSplitSchema,
     code_metadata_filepath,
-    code_metadata_schema,
-    data_schema,
     data_subdirectory,
     dataset_metadata_filepath,
-    description_field,
-    label_schema,
-    numeric_value_field,
-    parent_codes_field,
-    prediction_time_field,
-    subject_id_field,
-    subject_split_schema,
     subject_splits_filepath,
-    time_field,
 )
 from yaml import load as load_yaml
 
@@ -52,8 +45,7 @@ class MEDSDataset:
         data_shards: A dictionary of data shards, where the keys are the shard names and the values are the
             data tables. Upon access of this attribute, the data will be returned as pyarrow tables. Upon
             specification in the constructor, polars dataframes are expected instead.
-        dataset_metadata: The metadata for the dataset, stored as a DatasetMetadata object (which is just a
-            type-annotated dictionary).
+        dataset_metadata: The metadata for the dataset, stored as a DatasetMetadataSchema object.
         code_metadata: The metadata for the codes. Upon access of this attribute, the data will be returned as
             a pyarrow table. Upon specification in the constructor, a polars dataframe is expected instead.
         subject_splits: The subject splits for the dataset. Optional. Upon access of this attribute, the data
@@ -70,12 +62,12 @@ class MEDSDataset:
         ...     "0": pl.DataFrame({"subject_id": [0], "time": [0], "numeric_value": [None], "code": ["A"]}),
         ...     "1": pl.DataFrame({"subject_id": [1], "time": [0], "numeric_value": [1.0], "code": ["B"]}),
         ... }
-        >>> dataset_metadata = DatasetMetadata(
+        >>> dataset_metadata = DatasetMetadataSchema(
         ...     dataset_name="test",
         ...     dataset_version="0.0.1",
         ...     etl_name="foo",
         ...     etl_version="0.0.1",
-        ...     meds_version="0.3.3",
+        ...     meds_version="0.fake.version",
         ...     created_at="1/1/2025",
         ...     extension_columns=[],
         ... )
@@ -101,13 +93,20 @@ class MEDSDataset:
                                        'time': [0],
                                        'numeric_value': [1.0],
                                        'code': ['B']}},
-                    dataset_metadata={'dataset_name': 'test',
-                                      'dataset_version': '0.0.1',
-                                      'etl_name': 'foo',
-                                      'etl_version': '0.0.1',
-                                      'meds_version': '0.3.3',
-                                      'created_at': '1/1/2025',
-                                      'extension_columns': []},
+                    dataset_metadata=DatasetMetadataSchema(dataset_name='test',
+                                                           dataset_version='0.0.1',
+                                                           etl_name='foo',
+                                                           etl_version='0.0.1',
+                                                           meds_version='0.fake.version',
+                                                           created_at='1/1/2025',
+                                                           license=None,
+                                                           location_uri=None,
+                                                           description_uri=None,
+                                                           raw_source_id_columns=None,
+                                                           code_modifier_columns=None,
+                                                           additional_value_modality_columns=None,
+                                                           site_id_columns=None,
+                                                           other_extension_columns=None),
                     code_metadata={'code': ['A', 'B'],
                                    'description': ['foo', 'bar'],
                                    'parent_codes': [None, None]})
@@ -118,7 +117,7 @@ class MEDSDataset:
           - dataset_version: 0.0.1
           - etl_name: foo
           - etl_version: 0.0.1
-          - meds_version: 0.3.3
+          - meds_version: 0.fake.version
           - created_at: 1/1/2025
           - extension_columns: []
         data_shards:
@@ -167,7 +166,7 @@ class MEDSDataset:
           - dataset_version: 0.0.1
           - etl_name: foo
           - etl_version: 0.0.1
-          - meds_version: 0.3.3
+          - meds_version: 0.fake.version
           - created_at: 1/1/2025
           - extension_columns: []
         data_shards:
@@ -256,7 +255,7 @@ class MEDSDataset:
           - dataset_version: 0.0.1
           - etl_name: foo
           - etl_version: 0.0.1
-          - meds_version: 0.3.3
+          - meds_version: 0.fake.version
           - created_at: 1/1/2025
           - extension_columns: []
         data_shards:
@@ -319,7 +318,7 @@ class MEDSDataset:
           - dataset_version: 0.0.1
           - etl_name: foo
           - etl_version: 0.0.1
-          - meds_version: 0.3.3
+          - meds_version: 0.fake.version
           - created_at: 1/1/2025
           - extension_columns: []
         data_shards:
@@ -409,13 +408,20 @@ class MEDSDataset:
                                        'time': [0],
                                        'numeric_value': [1.0],
                                        'code': ['B']}},
-                    dataset_metadata={'dataset_name': 'test',
-                                      'dataset_version': '0.0.1',
-                                      'etl_name': 'foo',
-                                      'etl_version': '0.0.1',
-                                      'meds_version': '0.3.3',
-                                      'created_at': '1/1/2025',
-                                      'extension_columns': []},
+                    dataset_metadata=DatasetMetadataSchema(dataset_name='test',
+                                                           dataset_version='0.0.1',
+                                                           etl_name='foo',
+                                                           etl_version='0.0.1',
+                                                           meds_version='0.fake.version',
+                                                           created_at='1/1/2025',
+                                                           license=None,
+                                                           location_uri=None,
+                                                           description_uri=None,
+                                                           raw_source_id_columns=None,
+                                                           code_modifier_columns=None,
+                                                           additional_value_modality_columns=None,
+                                                           site_id_columns=None,
+                                                           other_extension_columns=None),
                     code_metadata={'code': ['A', 'B'],
                                    'description': ['foo', 'bar'],
                                    'parent_codes': [None, None]},
@@ -440,7 +446,7 @@ class MEDSDataset:
           - dataset_version: 0.0.1
           - etl_name: foo
           - etl_version: 0.0.1
-          - meds_version: 0.3.3
+          - meds_version: 0.fake.version
           - created_at: 1/1/2025
           - extension_columns: []
         data_shards:
@@ -486,14 +492,14 @@ class MEDSDataset:
               prediction_time: timestamp[us]
               boolean_value: bool
               integer_value: int64
-              float_value: double
+              float_value: float
               categorical_value: string
               ----
               subject_id: [[]]
               prediction_time: [[]]
               boolean_value: [[]]
               integer_value: [[]]
-              float_value: [[]]
+              float_value: []
               categorical_value: []
           * C:
             - 0:
@@ -502,7 +508,7 @@ class MEDSDataset:
               prediction_time: timestamp[us]
               boolean_value: bool
               integer_value: int64
-              float_value: double
+              float_value: float
               categorical_value: string
               ----
               subject_id: [[0,1]]
@@ -536,7 +542,7 @@ class MEDSDataset:
           - dataset_version: 0.0.1
           - etl_name: foo
           - etl_version: 0.0.1
-          - meds_version: 0.3.3
+          - meds_version: 0.fake.version
           - created_at: 1/1/2025
           - extension_columns: []
         data_shards:
@@ -582,7 +588,7 @@ class MEDSDataset:
               prediction_time: timestamp[us]
               boolean_value: bool
               integer_value: int64
-              float_value: double
+              float_value: float
               categorical_value: string
               ----
               subject_id: [[]]
@@ -598,7 +604,7 @@ class MEDSDataset:
               prediction_time: timestamp[us]
               boolean_value: bool
               integer_value: int64
-              float_value: double
+              float_value: float
               categorical_value: string
               ----
               subject_id: [[0,1]]
@@ -647,12 +653,12 @@ class MEDSDataset:
         ... )
         >>> D1 == D2
         False
-        >>> alt_dataset_metadata = DatasetMetadata(
+        >>> alt_dataset_metadata = DatasetMetadataSchema(
         ...     dataset_name="test_2",
         ...     dataset_version="0.0.1",
         ...     etl_name="foo",
         ...     etl_version="0.0.1",
-        ...     meds_version="0.3.3",
+        ...     meds_version="0.fake.version",
         ...     created_at="1/1/2025",
         ...     extension_columns=[],
         ... )
@@ -701,33 +707,33 @@ class MEDSDataset:
     CSV_TS_FORMAT: ClassVar[str] = "%m/%d/%Y, %H:%M:%S"
 
     PL_DATA_SCHEMA: ClassVar[dict[str, pl.DataType]] = {
-        subject_id_field: pl.Int64,
-        time_field: pl.Datetime("us"),
-        code_field: pl.String,
-        numeric_value_field: pl.Float32,
+        DataSchema.subject_id_name: pl.Int64,
+        DataSchema.time_name: pl.Datetime("us"),
+        DataSchema.code_name: pl.String,
+        DataSchema.numeric_value_name: pl.Float32,
     }
 
     PL_CODE_METADATA_SCHEMA: ClassVar[dict[str, pl.DataType]] = {
-        code_field: pl.String,
-        description_field: pl.String,
-        parent_codes_field: pl.List(pl.String),
+        CodeMetadataSchema.code_name: pl.String,
+        CodeMetadataSchema.description_name: pl.String,
+        CodeMetadataSchema.parent_codes_name: pl.List(pl.String),
     }
 
     PL_SUBJECT_SPLIT_SCHEMA: ClassVar[dict[str, pl.DataType]] = {
-        subject_id_field: pl.Int64,
-        "split": pl.String,
+        SubjectSplitSchema.subject_id_name: pl.Int64,
+        SubjectSplitSchema.split_name: pl.String,
     }
 
     PL_LABEL_SCHEMA: ClassVar[dict[str, pl.DataType]] = {
-        subject_id_field: pl.Int64,
-        prediction_time_field: pl.Datetime("us"),
-        "boolean_value": pl.Boolean,
-        "integer_value": pl.Int64,
-        "float_value": pl.Float64,
-        "categorical_value": pl.String,
+        LabelSchema.subject_id_name: pl.Int64,
+        LabelSchema.prediction_time_name: pl.Datetime("us"),
+        LabelSchema.boolean_value_name: pl.Boolean,
+        LabelSchema.integer_value_name: pl.Int64,
+        LabelSchema.float_value_name: pl.Float64,
+        LabelSchema.categorical_value_name: pl.String,
     }
 
-    TIME_FIELDS: ClassVar[set[str]] = {time_field, prediction_time_field}
+    TIME_FIELDS: ClassVar[set[str]] = {DataSchema.time_name, LabelSchema.prediction_time_name}
 
     TASK_LABELS_SUBDIR: ClassVar[str] = "task_labels"
     TASK_NAMES_FN: ClassVar[str] = ".task_names.json"
@@ -736,7 +742,7 @@ class MEDSDataset:
         self,
         root_dir: Path | None = None,
         data_shards: SHARDED_DF_T | None = None,
-        dataset_metadata: DatasetMetadata | None = None,
+        dataset_metadata: DatasetMetadataSchema | None = None,
         code_metadata: pl.DataFrame | None = None,
         subject_splits: pl.DataFrame | None = None,
         task_labels: dict[str, SHARDED_DF_T] | None = None,
@@ -749,7 +755,11 @@ class MEDSDataset:
             if code_metadata is None:
                 logger.warning("Inferring empty code metadata as none was provided.")
                 code_metadata = pl.DataFrame(
-                    {code_field: [], description_field: [], parent_codes_field: []},
+                    {
+                        CodeMetadataSchema.code_name: [],
+                        CodeMetadataSchema.description_name: [],
+                        CodeMetadataSchema.parent_codes_name: [],
+                    },
                     schema=self.PL_CODE_METADATA_SCHEMA,
                 )
 
@@ -913,12 +923,12 @@ class MEDSDataset:
         cols = csv.split("\n")[0].split(",")
         for col in cols:
             do_retype_time = col in cls.TIME_FIELDS
-            do_retype_parent_codes = col == parent_codes_field
+            do_retype_parent_codes = col == CodeMetadataSchema.parent_codes_name
             if col in schema_updates:
                 read_schema[col] = schema_updates[col]
                 if col in cls.TIME_FIELDS and not schema_updates[col].is_temporal():
                     do_retype_time = False
-                if col == parent_codes_field and schema_updates[col] is not cls.PL_CODE_METADATA_SCHEMA[col]:
+                if do_retype_parent_codes and schema_updates[col] is not cls.PL_CODE_METADATA_SCHEMA[col]:
                     do_retype_parent_codes = False
             elif col in cls.PL_DATA_SCHEMA:
                 read_schema[col] = cls.PL_DATA_SCHEMA[col]
@@ -948,8 +958,8 @@ class MEDSDataset:
 
         col_updates = {t: pl.col(t).str.strptime(dt, cls.CSV_TS_FORMAT) for t, dt in time_schema.items()}
         if has_parent_codes:
-            col_updates[parent_codes_field] = (
-                pl.col(parent_codes_field).str.split(", ").cast(pl.List(pl.String))
+            col_updates[CodeMetadataSchema.parent_codes_name] = (
+                pl.col(CodeMetadataSchema.parent_codes_name).str.split(", ").cast(pl.List(pl.String))
             )
 
         return df.with_columns(**col_updates).select(cols)
@@ -1064,8 +1074,20 @@ class MEDSDataset:
             MEDSDataset(data_shards={'train/0': {'subject_id': [0],
                                                  'time': [datetime.datetime(2025, 1, 1, 12, 0)],
                                                  'code': ['A'], 'numeric_value': [None]}},
-                        dataset_metadata={'dataset_name': 'test',
-                                          'dataset_version': '0.0.1'},
+                        dataset_metadata=DatasetMetadataSchema(dataset_name='test',
+                                                               dataset_version='0.0.1',
+                                                               etl_name=None,
+                                                               etl_version=None,
+                                                               meds_version=None,
+                                                               created_at=None,
+                                                               license=None,
+                                                               location_uri=None,
+                                                               description_uri=None,
+                                                               raw_source_id_columns=None,
+                                                               code_modifier_columns=None,
+                                                               additional_value_modality_columns=None,
+                                                               site_id_columns=None,
+                                                               other_extension_columns=None),
                         code_metadata={'code': [], 'description': [], 'parent_codes': []},
                         subject_splits={'subject_id': [0], 'split': ['train']})
 
@@ -1096,7 +1118,20 @@ class MEDSDataset:
                                                  'time': [datetime.datetime(2025, 1, 1, 12, 0)],
                                                  'code': ['A'],
                                                  'numeric_value': [None]}},
-                        dataset_metadata={'dataset_name': 'test'},
+                        dataset_metadata=DatasetMetadataSchema(dataset_name='test',
+                                                               dataset_version=None,
+                                                               etl_name=None,
+                                                               etl_version=None,
+                                                               meds_version=None,
+                                                               created_at=None,
+                                                               license=None,
+                                                               location_uri=None,
+                                                               description_uri=None,
+                                                               raw_source_id_columns=None,
+                                                               code_modifier_columns=None,
+                                                               additional_value_modality_columns=None,
+                                                               site_id_columns=None,
+                                                               other_extension_columns=None),
                         code_metadata={'code': ['A', 'G'],
                                        'description': ['foo', 'bar'],
                                        'parent_codes': [['bar', 'baz'], []]})
@@ -1121,7 +1156,20 @@ class MEDSDataset:
                                                  'time': [datetime.datetime(2025, 1, 1, 12, 0)],
                                                  'code': ['A'],
                                                  'numeric_value': [None]}},
-                        dataset_metadata={'dataset_name': 'test'},
+                        dataset_metadata=DatasetMetadataSchema(dataset_name='test',
+                                                               dataset_version=None,
+                                                               etl_name=None,
+                                                               etl_version=None,
+                                                               meds_version=None,
+                                                               created_at=None,
+                                                               license=None,
+                                                               location_uri=None,
+                                                               description_uri=None,
+                                                               raw_source_id_columns=None,
+                                                               code_modifier_columns=None,
+                                                               additional_value_modality_columns=None,
+                                                               site_id_columns=None,
+                                                               other_extension_columns=None),
                         code_metadata={'code': ['A', 'G'],
                                        'description': ['foo', 'bar'],
                                        'parent_codes': [['bar', 'baz'], []]})
@@ -1206,14 +1254,14 @@ class MEDSDataset:
                   prediction_time: timestamp[us]
                   boolean_value: bool
                   integer_value: int64
-                  float_value: double
+                  float_value: float
                   categorical_value: string
                   ----
                   subject_id: [[239684,239684,239684,1195293,1195293,1195293,68729,68729,68729],[68729]]
                   prediction_time: [[2010-05-11 18:00:00.000000,2010-05-11 18:30:00.000000,2010-05-11 19:00:00.000000,2010-06-20 19:30:00.000000,2010-06-20 20:00:00.000000,2010-06-20 20:30:00.000000,2010-05-26 03:00:00.000000,2010-05-26 03:30:00.000000,2010-05-26 04:00:00.000000],[2010-05-26 04:30:00.000000]]
                   boolean_value: [[false,true,true,false,true,true,false,false,true],[true]]
                   integer_value: [[null,null,null,null,null,null,null,null,null],[null]]
-                  float_value: [[null,null,null,null,null,null,null,null,null],[null]]
+                  float_value: [[null,null,null,null,null,null,null,null,null,null]]
                   categorical_value: [[null,null,null,null,null,null,null,null,null],[null]]
                 - labels_B.parquet:
                   pyarrow.Table
@@ -1221,14 +1269,14 @@ class MEDSDataset:
                   prediction_time: timestamp[us]
                   boolean_value: bool
                   integer_value: int64
-                  float_value: double
+                  float_value: float
                   categorical_value: string
                   ----
                   subject_id: [[814703,814703,814703,754281,754281,754281,754281,1500733,1500733,1500733],[1500733]]
                   prediction_time: [[2010-02-05 06:00:00.000000,2010-02-05 06:30:00.000000,2010-02-05 07:00:00.000000,2010-01-03 06:30:00.000000,2010-01-03 07:00:00.000000,2010-01-03 07:30:00.000000,2010-01-03 08:00:00.000000,2010-06-03 15:00:00.000000,2010-06-03 15:30:00.000000,2010-06-03 16:00:00.000000],[2010-06-03 16:30:00.000000]]
                   boolean_value: [[false,true,true,false,false,true,true,false,false,true],[true]]
                   integer_value: [[null,null,null,null,null,null,null,null,null,null],[null]]
-                  float_value: [[null,null,null,null,null,null,null,null,null,null],[null]]
+                  float_value: [[null,null,null,null,null,null,null,null,null,null,null]]
                   categorical_value: [[null,null,null,null,null,null,null,null,null,null],[null]]
 
             Errors are raised when the YAML is malformed or a non-existent path:
@@ -1283,7 +1331,7 @@ class MEDSDataset:
         data_shards = {}
         code_metadata = None
         subject_splits = None
-        dataset_metadata = DatasetMetadata()
+        dataset_metadata = DatasetMetadataSchema()
         task_labels = None
         for key, value in data.items():
             key_parts = key.split("/")
@@ -1322,7 +1370,7 @@ class MEDSDataset:
             elif key == subject_splits_filepath:
                 subject_splits = cls.parse_csv(value, **schema_overrides)
             elif key == dataset_metadata_filepath:
-                dataset_metadata = DatasetMetadata(**value, **schema_overrides)
+                dataset_metadata = DatasetMetadataSchema(**value, **schema_overrides)
             elif key == cls.TASK_LABELS_SUBDIR:
                 task_labels = {
                     task_name: {
@@ -1344,10 +1392,6 @@ class MEDSDataset:
             task_labels=task_labels,
         )
 
-    @staticmethod
-    def _align_df(df: pl.DataFrame, schema: pa.Schema) -> pa.Table:
-        return df.select(schema.names).to_arrow().cast(schema)
-
     @property
     def dataset_metadata_fp(self) -> Path | None:
         if self.root_dir is None:
@@ -1356,14 +1400,14 @@ class MEDSDataset:
             return self.root_dir / dataset_metadata_filepath
 
     @property
-    def dataset_metadata(self) -> DatasetMetadata:
+    def dataset_metadata(self) -> DatasetMetadataSchema:
         if self.root_dir is None:
             return self._dataset_metadata
         else:
-            return DatasetMetadata(**json.loads(self.dataset_metadata_fp.read_text()))
+            return DatasetMetadataSchema(**json.loads(self.dataset_metadata_fp.read_text()))
 
     @dataset_metadata.setter
-    def dataset_metadata(self, value: DatasetMetadata | None):
+    def dataset_metadata(self, value: DatasetMetadataSchema | None):
         self._dataset_metadata = value
 
     def _shard_name(self, data_fp: Path, root_dir: Path | None = None) -> str:
@@ -1387,7 +1431,7 @@ class MEDSDataset:
 
     @property
     def data_shards(self) -> dict[str, pa.Table]:
-        return {shard: self._align_df(df, data_schema()) for shard, df in self._pl_shards.items()}
+        return {shard: DataSchema.align(df.to_arrow()) for shard, df in self._pl_shards.items()}
 
     @data_shards.setter
     def data_shards(self, value: SHARDED_DF_T | None):
@@ -1409,7 +1453,7 @@ class MEDSDataset:
 
     @property
     def code_metadata(self) -> pa.Table:
-        return self._align_df(self._pl_code_metadata, code_metadata_schema())
+        return CodeMetadataSchema.align(self._pl_code_metadata.to_arrow())
 
     @code_metadata.setter
     def code_metadata(self, value: pl.DataFrame | None):
@@ -1437,7 +1481,7 @@ class MEDSDataset:
         pl_subject_splits = self._pl_subject_splits
         if pl_subject_splits is None:
             return None
-        return self._align_df(pl_subject_splits, subject_split_schema)
+        return SubjectSplitSchema.align(pl_subject_splits.to_arrow())
 
     @subject_splits.setter
     def subject_splits(self, value: pl.DataFrame | None):
@@ -1493,7 +1537,7 @@ class MEDSDataset:
             return None
 
         return {
-            task_name: {shard: self._align_df(df, label_schema) for shard, df in shards.items()}
+            task_name: {shard: LabelSchema.align(df.to_arrow()) for shard, df in shards.items()}
             for task_name, shards in self._pl_task_labels.items()
         }
 
@@ -1522,7 +1566,7 @@ class MEDSDataset:
 
         dataset_metadata_fp = output_dir / dataset_metadata_filepath
         dataset_metadata_fp.parent.mkdir(parents=True, exist_ok=True)
-        dataset_metadata_fp.write_text(json.dumps(self.dataset_metadata))
+        dataset_metadata_fp.write_text(json.dumps(self.dataset_metadata.to_dict()))
 
         if self.subject_splits is not None:
             subject_splits_fp = output_dir / subject_splits_filepath
