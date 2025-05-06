@@ -18,7 +18,14 @@ classifiers = [
     "Operating System :: OS Independent",
 ]
 dependencies = [
-  "annotated-types", "numpy", "hydra-core", "polars", "pytest", "meds==0.3.3", "pyarrow", "pytimeparse"
+  "annotated-types",
+  "numpy",
+  "hydra-core",
+  "polars",
+  "pytest",
+  "meds~=0.4.0",
+  "pyarrow",
+  "pytimeparse"
 ]
 
 [project.optional-dependencies]
