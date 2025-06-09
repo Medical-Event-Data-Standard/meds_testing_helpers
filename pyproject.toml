@@ -52,6 +52,7 @@ addopts = [
   "--color=yes",
   "--doctest-modules",
   "--ignore=docs",
+  "--ignore=AGENTS.md",
 ]
 doctest_optionflags = ["NORMALIZE_WHITESPACE", "ELLIPSIS"]
 
