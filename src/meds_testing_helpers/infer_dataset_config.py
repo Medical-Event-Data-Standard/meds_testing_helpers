@@ -9,14 +9,13 @@ import hydra
 import numpy as np
 import polars as pl
 from meds import (
+    DataSchema,
+    SubjectSplitSchema,
     birth_code,
-    code_field,
     dataset_metadata_filepath,
     death_code,
     held_out_split,
-    subject_id_field,
     subject_splits_filepath,
-    time_field,
     train_split,
     tuning_split,
 )
@@ -86,11 +85,15 @@ def main(cfg: DictConfig):
         tuning_frac = None
         held_out_frac = None
     else:
+        split_col = pl.col(SubjectSplitSchema.split_name)
+
         subject_splits = pl.read_parquet(subject_splits_fp)
-        split_cnts = subject_splits.group_by("split").agg(pl.col(subject_id_field).count().alias("count"))
-        train_cnt = split_cnts.filter(pl.col("split") == train_split).select("count").first().item()
-        tuning_cnt = split_cnts.filter(pl.col("split") == tuning_split).select("count").first().item()
-        held_out_cnt = split_cnts.filter(pl.col("split") == held_out_split).select("count").first().item()
+        split_cnts = subject_splits.group_by(split_col).agg(
+            pl.col(SubjectSplitSchema.subject_id_name).count().alias("count")
+        )
+        train_cnt = split_cnts.filter(split_col == train_split).select("count").first().item()
+        tuning_cnt = split_cnts.filter(split_col == tuning_split).select("count").first().item()
+        held_out_cnt = split_cnts.filter(split_col == held_out_split).select("count").first().item()
 
         total_cnt = train_cnt + tuning_cnt + held_out_cnt
         train_frac = train_cnt / total_cnt
@@ -102,8 +105,8 @@ def main(cfg: DictConfig):
     rng.shuffle(shards)
     shards_to_examine = shards[:3]
 
-    code_col = pl.col(code_field)
-    time_col = pl.col(time_field)
+    code_col = pl.col(DataSchema.code_name)
+    time_col = pl.col(DataSchema.time_name)
     is_static = time_col.is_null()
     is_dynamic = time_col.is_not_null()
     is_birth = code_col.str.starts_with(birth_code)
@@ -116,7 +119,7 @@ def main(cfg: DictConfig):
     )
 
     shards = [pl.read_parquet(shard, use_pyarrow=True) for shard in shards_to_examine]
-    shard_sizes = [shard.select(pl.col(subject_id_field).n_unique()).item() for shard in shards]
+    shard_sizes = [shard.select(pl.col(DataSchema.subject_id_name).n_unique()).item() for shard in shards]
 
     df = pl.concat(shards, how="vertical_relaxed")
     dynamic_df = df.filter(is_dynamic_data)
@@ -126,7 +129,7 @@ def main(cfg: DictConfig):
     birth_codes_vocab_size = df.filter(is_birth).select(code_col.n_unique()).item()
     death_codes_vocab_size = df.filter(is_death).select(code_col.n_unique()).item()
 
-    subject_stats = df.group_by(subject_id_field).agg(
+    subject_stats = df.group_by(DataSchema.subject_id_name).agg(
         pl.when(is_birth).then(time_col).min().alias("birth_time"),
         pl.when(is_death).then(time_col).max().alias("death_time"),
         is_birth.any().alias("has_birth"),
@@ -139,7 +142,7 @@ def main(cfg: DictConfig):
     frac_subjects_with_death = subject_stats.select(pl.col("has_death").mean()).item()
     num_static_measurements_per_subject = subject_stats["n_static_measurements"].drop_nulls().to_list()
 
-    subject_dynamic_stats = dynamic_df.group_by(subject_id_field).agg(
+    subject_dynamic_stats = dynamic_df.group_by(DataSchema.subject_id_name).agg(
         time_col.min().alias("first_data_time"),
         time_col.max().alias("last_data_time"),
         time_col.n_unique().alias("n_events"),
@@ -150,7 +153,7 @@ def main(cfg: DictConfig):
     num_events_per_subject = subject_dynamic_stats["n_events"].drop_nulls().to_list()
     time_between_data_events = subject_dynamic_stats["time_between_events"].drop_nulls().to_numpy()
 
-    boundary_deltas = subject_dynamic_stats.join(subject_stats, on=subject_id_field).select(
+    boundary_deltas = subject_dynamic_stats.join(subject_stats, on=DataSchema.subject_id_name).select(
         (pl.col("first_data_time") - pl.col("birth_time")).alias("time_between_birth_and_data"),
         (pl.col("death_time") - pl.col("last_data_time")).alias("time_between_data_and_death"),
     )
@@ -159,11 +162,11 @@ def main(cfg: DictConfig):
     time_between_data_and_death = boundary_deltas["time_between_data_and_death"].drop_nulls().to_numpy()
 
     num_measurements_per_event = (
-        dynamic_df.group_by(subject_id_field, time_col).agg(pl.count())["count"].to_list()
+        dynamic_df.group_by(DataSchema.subject_id_name, time_col).agg(pl.count())["count"].to_list()
     )
 
     dynamic_code_stats = (
-        dynamic_df.group_by(code_field)
+        dynamic_df.group_by(DataSchema.code_name)
         .agg(numerics_present.sum().alias("n_values"), pl.count().alias("n_occurrences"))
         .select((pl.col("n_values") / pl.col("n_occurrences")).alias("frac_values"))
     )
@@ -171,7 +174,7 @@ def main(cfg: DictConfig):
 
     static_code_stats = (
         df.filter(is_static)
-        .group_by(code_field)
+        .group_by(DataSchema.code_name)
         .agg(numerics_present.sum().alias("n_values"), pl.count().alias("n_occurrences"))
         .select((pl.col("n_values") / pl.col("n_occurrences")).alias("frac_values"))
     )
