@@ -12,7 +12,6 @@ This is a legacy dataset used in previous testing code. It is currently in use, 
 it likely to be deprecated soon. These include:
 
 - It is sharded by split, rather than relying on the more general `metadata/subject_splits.parquet` file.
-- It does not use the proper birth or death codes.
 
 This dataset can also be generated under the generation config `dataset_spec/data_generator: sample`
 

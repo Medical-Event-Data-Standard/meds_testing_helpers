@@ -999,7 +999,7 @@ class MEDSDataset:
                 ----
                 subject_id: [[239684,239684,239684,239684,239684,...,1195293,1195293,1195293,1195293,1195293],[1195293]]
                 time: [[null,null,1980-12-28 00:00:00.000000,2010-05-11 17:41:51.000000,2010-05-11 17:41:51.000000,...,2010-06-20 20:12:31.000000,2010-06-20 20:24:44.000000,2010-06-20 20:24:44.000000,2010-06-20 20:41:33.000000,2010-06-20 20:41:33.000000],[2010-06-20 20:50:04.000000]]
-                code: [["EYE_COLOR//BROWN","HEIGHT","DOB","ADMISSION//CARDIAC","HR",...,"TEMP","HR","TEMP","HR","TEMP"],["DISCHARGE"]]
+                code: [["EYE_COLOR//BROWN","HEIGHT","MEDS_BIRTH","ADMISSION//CARDIAC","HR",...,"TEMP","HR","TEMP","HR","TEMP"],["DISCHARGE"]]
                 numeric_value: [[null,175.27112,null,null,102.6,...,99.8,107.7,100,107.5,100.4],[null]]
               - train/1:
                 pyarrow.Table
@@ -1010,7 +1010,7 @@ class MEDSDataset:
                 ----
                 subject_id: [[68729,68729,68729,68729,68729,...,814703,814703,814703,814703,814703],[814703]]
                 time: [[null,null,1978-03-09 00:00:00.000000,2010-05-26 02:30:56.000000,2010-05-26 02:30:56.000000,...,null,1976-03-28 00:00:00.000000,2010-02-05 05:55:39.000000,2010-02-05 05:55:39.000000,2010-02-05 05:55:39.000000],[2010-02-05 07:02:30.000000]]
-                code: [["EYE_COLOR//HAZEL","HEIGHT","DOB","ADMISSION//PULMONARY","HR",...,"HEIGHT","DOB","ADMISSION//ORTHOPEDIC","HR","TEMP"],["DISCHARGE"]]
+                code: [["EYE_COLOR//HAZEL","HEIGHT","MEDS_BIRTH","ADMISSION//PULMONARY","HR",...,"HEIGHT","MEDS_BIRTH","ADMISSION//ORTHOPEDIC","HR","TEMP"],["DISCHARGE"]]
                 numeric_value: [[null,160.39531,null,null,86,...,156.4856,null,null,170.2,100.1],[null]]
               - tuning/0:
                 pyarrow.Table
@@ -1021,7 +1021,7 @@ class MEDSDataset:
                 ----
                 subject_id: [[754281,754281,754281,754281,754281,754281],[754281]]
                 time: [[null,null,1988-12-19 00:00:00.000000,2010-01-03 06:27:59.000000,2010-01-03 06:27:59.000000,2010-01-03 06:27:59.000000],[2010-01-03 08:22:13.000000]]
-                code: [["EYE_COLOR//BROWN","HEIGHT","DOB","ADMISSION//PULMONARY","HR","TEMP"],["DISCHARGE"]]
+                code: [["EYE_COLOR//BROWN","HEIGHT","MEDS_BIRTH","ADMISSION//PULMONARY","HR","TEMP"],["DISCHARGE"]]
                 numeric_value: [[null,166.22261,null,null,142,99.8],[null]]
               - held_out/0:
                 pyarrow.Table
@@ -1032,7 +1032,7 @@ class MEDSDataset:
                 ----
                 subject_id: [[1500733,1500733,1500733,1500733,1500733,1500733,1500733,1500733,1500733,1500733],[1500733]]
                 time: [[null,null,1986-07-20 00:00:00.000000,2010-06-03 14:54:38.000000,2010-06-03 14:54:38.000000,2010-06-03 14:54:38.000000,2010-06-03 15:39:49.000000,2010-06-03 15:39:49.000000,2010-06-03 16:20:49.000000,2010-06-03 16:20:49.000000],[2010-06-03 16:44:26.000000]]
-                code: [["EYE_COLOR//BROWN","HEIGHT","DOB","ADMISSION//ORTHOPEDIC","HR","TEMP","HR","TEMP","HR","TEMP"],["DISCHARGE"]]
+                code: [["EYE_COLOR//BROWN","HEIGHT","MEDS_BIRTH","ADMISSION//ORTHOPEDIC","HR","TEMP","HR","TEMP","HR","TEMP"],["DISCHARGE"]]
                 numeric_value: [[null,158.60132,null,null,91.4,100,84.4,100.3,90.1,100.1],[null]]
             code_metadata:
               pyarrow.Table
@@ -1194,7 +1194,7 @@ class MEDSDataset:
                 ----
                 subject_id: [[239684,239684,239684,239684,239684,...,1195293,1195293,1195293,1195293,1195293],[1195293]]
                 time: [[null,null,1980-12-28 00:00:00.000000,2010-05-11 17:41:51.000000,2010-05-11 17:41:51.000000,...,2010-06-20 20:12:31.000000,2010-06-20 20:24:44.000000,2010-06-20 20:24:44.000000,2010-06-20 20:41:33.000000,2010-06-20 20:41:33.000000],[2010-06-20 20:50:04.000000]]
-                code: [["EYE_COLOR//BROWN","HEIGHT","DOB","ADMISSION//CARDIAC","HR",...,"TEMP","HR","TEMP","HR","TEMP"],["DISCHARGE"]]
+                code: [["EYE_COLOR//BROWN","HEIGHT","MEDS_BIRTH","ADMISSION//CARDIAC","HR",...,"TEMP","HR","TEMP","HR","TEMP"],["DISCHARGE"]]
                 numeric_value: [[null,175.27112,null,null,102.6,...,99.8,107.7,100,107.5,100.4],[null]]
               - train/1:
                 pyarrow.Table
@@ -1205,7 +1205,7 @@ class MEDSDataset:
                 ----
                 subject_id: [[68729,68729,68729,68729,68729,...,814703,814703,814703,814703,814703],[814703]]
                 time: [[null,null,1978-03-09 00:00:00.000000,2010-05-26 02:30:56.000000,2010-05-26 02:30:56.000000,...,null,1976-03-28 00:00:00.000000,2010-02-05 05:55:39.000000,2010-02-05 05:55:39.000000,2010-02-05 05:55:39.000000],[2010-02-05 07:02:30.000000]]
-                code: [["EYE_COLOR//HAZEL","HEIGHT","DOB","ADMISSION//PULMONARY","HR",...,"HEIGHT","DOB","ADMISSION//ORTHOPEDIC","HR","TEMP"],["DISCHARGE"]]
+                code: [["EYE_COLOR//HAZEL","HEIGHT","MEDS_BIRTH","ADMISSION//PULMONARY","HR",...,"HEIGHT","MEDS_BIRTH","ADMISSION//ORTHOPEDIC","HR","TEMP"],["DISCHARGE"]]
                 numeric_value: [[null,160.39531,null,null,86,...,156.4856,null,null,170.2,100.1],[null]]
               - tuning/0:
                 pyarrow.Table
@@ -1216,7 +1216,7 @@ class MEDSDataset:
                 ----
                 subject_id: [[754281,754281,754281,754281,754281,754281],[754281]]
                 time: [[null,null,1988-12-19 00:00:00.000000,2010-01-03 06:27:59.000000,2010-01-03 06:27:59.000000,2010-01-03 06:27:59.000000],[2010-01-03 08:22:13.000000]]
-                code: [["EYE_COLOR//BROWN","HEIGHT","DOB","ADMISSION//PULMONARY","HR","TEMP"],["DISCHARGE"]]
+                code: [["EYE_COLOR//BROWN","HEIGHT","MEDS_BIRTH","ADMISSION//PULMONARY","HR","TEMP"],["DISCHARGE"]]
                 numeric_value: [[null,166.22261,null,null,142,99.8],[null]]
               - held_out/0:
                 pyarrow.Table
@@ -1227,7 +1227,7 @@ class MEDSDataset:
                 ----
                 subject_id: [[1500733,1500733,1500733,1500733,1500733,1500733,1500733,1500733,1500733,1500733],[1500733]]
                 time: [[null,null,1986-07-20 00:00:00.000000,2010-06-03 14:54:38.000000,2010-06-03 14:54:38.000000,2010-06-03 14:54:38.000000,2010-06-03 15:39:49.000000,2010-06-03 15:39:49.000000,2010-06-03 16:20:49.000000,2010-06-03 16:20:49.000000],[2010-06-03 16:44:26.000000]]
-                code: [["EYE_COLOR//BROWN","HEIGHT","DOB","ADMISSION//ORTHOPEDIC","HR","TEMP","HR","TEMP","HR","TEMP"],["DISCHARGE"]]
+                code: [["EYE_COLOR//BROWN","HEIGHT","MEDS_BIRTH","ADMISSION//ORTHOPEDIC","HR","TEMP","HR","TEMP","HR","TEMP"],["DISCHARGE"]]
                 numeric_value: [[null,158.60132,null,null,91.4,100,84.4,100.3,90.1,100.1],[null]]
             code_metadata:
               pyarrow.Table
