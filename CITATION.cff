@@ -1,0 +1,25 @@
+# This CITATION.cff file was generated with cffinit.
+# Visit https://bit.ly/cffinit to generate yours today!
+
+cff-version: 1.2.0
+title: MEDS Testing Helpers
+message: >-
+  If you use this software, please cite it using the
+  metadata from this file.
+type: software
+authors:
+  - family-names: McDermott
+    given-names: Matthew
+    email: mattmcdermott8@gmail.com
+    orcid: 'https://orcid.org/0000-0001-6048-9707'
+identifiers:
+  - type: doi
+    value: 10.5281/zenodo.17535838
+repository-code: >-
+  https://github.com/Medical-Event-Data-Standard/meds_testing_helpers
+abstract: >-
+  Provides various utilities for testing and benchmarking
+  MEDS packages and tools, including pytest helpers,
+  fixtures, sample datasets, and capabilities to build
+  larger sample datasets for benchmarking purposes.
+license: MIT

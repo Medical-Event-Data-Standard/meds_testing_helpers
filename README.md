@@ -10,6 +10,7 @@
 [![license](https://img.shields.io/badge/License-MIT-green.svg?labelColor=gray)](https://github.com/Medical-Event-Data-Standard/meds_testing_helpers#license)
 [![PRs](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](https://github.com/Medical-Event-Data-Standard/meds_testing_helpers/pulls)
 [![contributors](https://img.shields.io/github/contributors/Medical-Event-Data-Standard/meds_testing_helpers.svg)](https://github.com/Medical-Event-Data-Standard/meds_testing_helpers/graphs/contributors)
+[![DOI](https://zenodo.org/badge/913533804.svg)](https://doi.org/10.5281/zenodo.17535838)
 
 Provides various utilities for testing and benchmarking MEDS packages and tools, including pytest helpers,
 fixtures, sample datasets, and capabilities to build larger sample datasets for benchmarking purposes.
