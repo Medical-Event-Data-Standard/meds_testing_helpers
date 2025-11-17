@@ -470,7 +470,7 @@ class MEDSDatasetGenerator:
         dataset_version: 0.0.1
         etl_name: meds_testing_helpers
         etl_version: ...
-        meds_version: 0.4.0
+        meds_version: 0.4.1
         created_at: ...
         extension_columns: []
         >>> dataset._pl_code_metadata # This is always empty for now as these codes are meaningless.
