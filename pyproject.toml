@@ -28,9 +28,8 @@ dependencies = [
   "pytimeparse"
 ]
 
-[project.optional-dependencies]
-dev = ["pre-commit<4", "ruff"]
-tests = ["pytest-cov"]
+[dependency-groups]
+dev = ["pre-commit<4", "ruff", "pytest-cov"]
 docs = [
   "mkdocs==1.6.1", "mkdocs-material==9.6.7", "mkdocstrings[python,shell]==0.28.2", "mkdocs-gen-files==0.5.0",
   "mkdocs-literate-nav==0.6.1", "mkdocs-section-index==0.3.9", "mkdocs-git-authors-plugin==0.9.2",
@@ -53,6 +52,8 @@ addopts = [
   "--doctest-modules",
   "--ignore=docs",
   "--ignore=AGENTS.md",
+  "--ignore=CONTRIBUTORS.md",
+  "--doctest-glob=*.md",
 ]
 doctest_optionflags = ["NORMALIZE_WHITESPACE", "ELLIPSIS"]
 
